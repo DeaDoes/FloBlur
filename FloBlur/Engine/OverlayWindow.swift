@@ -124,15 +124,29 @@ final class OverlayWindow: NSWindow {
 
     // MARK: - Blur (ease-out-cubic ramp over 0.28s)
 
+    /// Debug escape hatches (restart required). Isolate which layer darkens:
+    /// `defaults write me.floblur.FloBlur FloBlurDebugNoFallback -bool YES`
+    /// `defaults write me.floblur.FloBlur FloBlurDebugNoSkyLight -bool YES`
+    private static var debugNoFallback: Bool {
+        UserDefaults.standard.bool(forKey: "FloBlurDebugNoFallback")
+    }
+
+    private static var debugNoSkyLight: Bool {
+        UserDefaults.standard.bool(forKey: "FloBlurDebugNoSkyLight")
+    }
+
     func setBlur(radius: Int, animated: Bool) {
+        let fallbackTarget: Double =
+            (radius > 0 && !Self.debugNoFallback) ? 1 : 0
+        let skyTarget = Self.debugNoSkyLight ? 0 : radius
         if animated {
             NSAnimationContext.runAnimationGroup { _ in
-                fallbackBlurView.animator().alphaValue = radius > 0 ? 1 : 0
+                fallbackBlurView.animator().alphaValue = fallbackTarget
             }
         } else {
-            fallbackBlurView.alphaValue = radius > 0 ? 1 : 0
+            fallbackBlurView.alphaValue = fallbackTarget
         }
-        startBlurRamp(to: radius)
+        startBlurRamp(to: skyTarget)
     }
 
     private func startBlurRamp(to radius: Int) {
