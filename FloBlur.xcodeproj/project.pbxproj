@@ -1,0 +1,358 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		BLDAPP000000000000000001 /* FloBlurApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILAPP000000000000000001 /* FloBlurApp.swift */; };
+		BLDPOP000000000000000001 /* MenuPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILPOP000000000000000001 /* MenuPopoverView.swift */; };
+		BLDSET000000000000000001 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILSET000000000000000001 /* Settings.swift */; };
+		BLDSETV00000000000000001 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILSETV00000000000000001 /* SettingsView.swift */; };
+		BLDDEL000000000000000001 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILDEL000000000000000001 /* AppDelegate.swift */; };
+		BLDSKY000000000000000001 /* SkyLight.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILSKY000000000000000001 /* SkyLight.swift */; };
+		BLDTRK000000000000000001 /* ActiveWindowTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILTRK000000000000000001 /* ActiveWindowTracker.swift */; };
+		BLDOVL000000000000000001 /* OverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILOVL000000000000000001 /* OverlayController.swift */; };
+		BLDPRE000000000000000001 /* Presets.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILPRE000000000000000001 /* Presets.swift */; };
+		BLDCLH000000000000000001 /* ColorHex.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILCLH000000000000000001 /* ColorHex.swift */; };
+		BLDFST000000000000000001 /* FocusState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILFST000000000000000001 /* FocusState.swift */; };
+		BLDHKY000000000000000001 /* HotKeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILHKY000000000000000001 /* HotKeyManager.swift */; };
+		BLDSCH000000000000000001 /* FocusScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILSCH000000000000000001 /* FocusScheduler.swift */; };
+		BLDUPD000000000000000001 /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILUPD000000000000000001 /* UpdateChecker.swift */; };
+		BLDOVW000000000000000001 /* OverlayWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILOVW000000000000000001 /* OverlayWindow.swift */; };
+		BLDNST000000000000000001 /* NightShift.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILNST000000000000000001 /* NightShift.swift */; };
+		BLDSHK000000000000000001 /* ShakeDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILSHK000000000000000001 /* ShakeDetector.swift */; };
+		BLDTGL000000000000000001 /* ToggleHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILTGL000000000000000001 /* ToggleHUD.swift */; };
+		BLDONB000000000000000001 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILONB000000000000000001 /* OnboardingView.swift */; };
+		BLDICN000000000000000001 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = FILICN000000000000000001 /* AppIcon.icns */; };
+		BLDREC000000000000000001 /* ShortcutRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILREC000000000000000001 /* ShortcutRecorderView.swift */; };
+		BLDPMM000000000000000001 /* PresetManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILPMM000000000000000001 /* PresetManagerView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		FILAPP000000000000000001 /* FloBlurApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloBlurApp.swift; sourceTree = "<group>"; };
+		FILINFO00000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		FILPOP000000000000000001 /* MenuPopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuPopoverView.swift; sourceTree = "<group>"; };
+		FILPROD00000000000000001 /* FloBlur.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FloBlur.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FILSET000000000000000001 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
+		FILSETV00000000000000001 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		FILDEL000000000000000001 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		FILSKY000000000000000001 /* SkyLight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkyLight.swift; sourceTree = "<group>"; };
+		FILTRK000000000000000001 /* ActiveWindowTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveWindowTracker.swift; sourceTree = "<group>"; };
+		FILOVL000000000000000001 /* OverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayController.swift; sourceTree = "<group>"; };
+		FILPRE000000000000000001 /* Presets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Presets.swift; sourceTree = "<group>"; };
+		FILCLH000000000000000001 /* ColorHex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorHex.swift; sourceTree = "<group>"; };
+		FILFST000000000000000001 /* FocusState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusState.swift; sourceTree = "<group>"; };
+		FILHKY000000000000000001 /* HotKeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotKeyManager.swift; sourceTree = "<group>"; };
+		FILSCH000000000000000001 /* FocusScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusScheduler.swift; sourceTree = "<group>"; };
+		FILUPD000000000000000001 /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
+		FILOVW000000000000000001 /* OverlayWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayWindow.swift; sourceTree = "<group>"; };
+		FILNST000000000000000001 /* NightShift.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightShift.swift; sourceTree = "<group>"; };
+		FILSHK000000000000000001 /* ShakeDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShakeDetector.swift; sourceTree = "<group>"; };
+		FILTGL000000000000000001 /* ToggleHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToggleHUD.swift; sourceTree = "<group>"; };
+		FILONB000000000000000001 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		FILICN000000000000000001 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		FILREC000000000000000001 /* ShortcutRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorderView.swift; sourceTree = "<group>"; };
+		FILPMM000000000000000001 /* PresetManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetManagerView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		PHFWK0000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		GRP0000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				GRP0000000000000000000002 /* FloBlur */,
+				GRP0000000000000000000005 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		GRP0000000000000000000002 /* FloBlur */ = {
+			isa = PBXGroup;
+			children = (
+				FILAPP000000000000000001 /* FloBlurApp.swift */,
+				FILDEL000000000000000001 /* AppDelegate.swift */,
+				GRP0000000000000000000003 /* Models */,
+				GRP0000000000000000000004 /* Views */,
+				GRP0000000000000000000006 /* Engine */,
+				FILINFO00000000000000001 /* Info.plist */,
+				FILICN000000000000000001 /* AppIcon.icns */,
+			);
+			path = FloBlur;
+			sourceTree = "<group>";
+		};
+		GRP0000000000000000000003 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				FILSET000000000000000001 /* Settings.swift */,
+				FILPRE000000000000000001 /* Presets.swift */,
+				FILCLH000000000000000001 /* ColorHex.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		GRP0000000000000000000004 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				FILPOP000000000000000001 /* MenuPopoverView.swift */,
+				FILSETV00000000000000001 /* SettingsView.swift */,
+				FILREC000000000000000001 /* ShortcutRecorderView.swift */,
+				FILPMM000000000000000001 /* PresetManagerView.swift */,
+				FILONB000000000000000001 /* OnboardingView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		GRP0000000000000000000005 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				FILPROD00000000000000001 /* FloBlur.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		GRP0000000000000000000006 /* Engine */ = {
+			isa = PBXGroup;
+			children = (
+				FILSKY000000000000000001 /* SkyLight.swift */,
+				FILTRK000000000000000001 /* ActiveWindowTracker.swift */,
+				FILOVL000000000000000001 /* OverlayController.swift */,
+				FILOVW000000000000000001 /* OverlayWindow.swift */,
+				FILFST000000000000000001 /* FocusState.swift */,
+				FILHKY000000000000000001 /* HotKeyManager.swift */,
+				FILSCH000000000000000001 /* FocusScheduler.swift */,
+				FILUPD000000000000000001 /* UpdateChecker.swift */,
+				FILNST000000000000000001 /* NightShift.swift */,
+				FILSHK000000000000000001 /* ShakeDetector.swift */,
+				FILTGL000000000000000001 /* ToggleHUD.swift */,
+			);
+			path = Engine;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		TGT0000000000000000000001 /* FloBlur */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CFGTL00000000000000000001 /* Build configuration list for PBXNativeTarget "FloBlur" */;
+			buildPhases = (
+				PHFWK0000000000000000001 /* Frameworks */,
+				PHSRC0000000000000000001 /* Sources */,
+				PHRES0000000000000000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FloBlur;
+			productName = FloBlur;
+			productReference = FILPROD00000000000000001 /* FloBlur.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		PROJ0000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 2700;
+			};
+			buildConfigurationList = CFGPL00000000000000000001 /* Build configuration list for PBXProject "FloBlur" */;
+			compatibilityVersion = "Xcode 16.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+			);
+			mainGroup = GRP0000000000000000000001;
+			productRefGroup = GRP0000000000000000000005 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				TGT0000000000000000000001 /* FloBlur */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		PHRES0000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BLDICN000000000000000001 /* AppIcon.icns in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		PHSRC0000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BLDAPP000000000000000001 /* FloBlurApp.swift in Sources */,
+				BLDDEL000000000000000001 /* AppDelegate.swift in Sources */,
+				BLDSET000000000000000001 /* Settings.swift in Sources */,
+				BLDPOP000000000000000001 /* MenuPopoverView.swift in Sources */,
+				BLDSETV00000000000000001 /* SettingsView.swift in Sources */,
+				BLDSKY000000000000000001 /* SkyLight.swift in Sources */,
+				BLDTRK000000000000000001 /* ActiveWindowTracker.swift in Sources */,
+				BLDOVL000000000000000001 /* OverlayController.swift in Sources */,
+				BLDPRE000000000000000001 /* Presets.swift in Sources */,
+				BLDCLH000000000000000001 /* ColorHex.swift in Sources */,
+				BLDFST000000000000000001 /* FocusState.swift in Sources */,
+				BLDHKY000000000000000001 /* HotKeyManager.swift in Sources */,
+				BLDSCH000000000000000001 /* FocusScheduler.swift in Sources */,
+				BLDUPD000000000000000001 /* UpdateChecker.swift in Sources */,
+				BLDOVW000000000000000001 /* OverlayWindow.swift in Sources */,
+				BLDNST000000000000000001 /* NightShift.swift in Sources */,
+				BLDSHK000000000000000001 /* ShakeDetector.swift in Sources */,
+				BLDTGL000000000000000001 /* ToggleHUD.swift in Sources */,
+				BLDONB000000000000000001 /* OnboardingView.swift in Sources */,
+				BLDREC000000000000000001 /* ShortcutRecorderView.swift in Sources */,
+				BLDPMM000000000000000001 /* PresetManagerView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		CFGPD00000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		CFGPR00000000000000000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		CFGTD00000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FloBlur/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = me.floblur.FloBlur;
+				PRODUCT_NAME = FloBlur;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		CFGTR00000000000000000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FloBlur/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = me.floblur.FloBlur;
+				PRODUCT_NAME = FloBlur;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		CFGPL00000000000000000001 /* Build configuration list for PBXProject "FloBlur" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CFGPD00000000000000000001 /* Debug */,
+				CFGPR00000000000000000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CFGTL00000000000000000001 /* Build configuration list for PBXNativeTarget "FloBlur" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CFGTD00000000000000000001 /* Debug */,
+				CFGTR00000000000000000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = PROJ0000000000000000000001 /* Project object */;
+}
