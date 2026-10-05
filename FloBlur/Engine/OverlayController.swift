@@ -16,14 +16,11 @@ final class OverlayController {
     private let ownPID = NSRunningApplication.current.processIdentifier
     /// Last seating decision, for change-only diagnostics.
     private var lastDecision = ""
-    /// Seating token per display: -2 = parked on top, otherwise the window
-    /// number parked below (fullscreen-front only). The overlay is ordered
-    /// exactly once per seating. Re-ordering rebuilds the window server's
-    /// blur buffer — black until it converges and invisible to screenshots
-    /// (sharingType .none) — so steady-state updates only move holes/dim/
-    /// blur in place. Holes are cut for EVERY sharp window including the
-    /// anchor, so the parked overlay can never cover the window in use.
+    /// Last anchor window number each overlay was seated below. Re-seating
+    /// to the same anchor is skipped (matches the original's `lastAnchor`),
+    /// except once a second (stale seatings self-heal).
     private var lastAnchor: [String: Int] = [:]
+    private var lastSeatTime = 0.0
     private var refreshQueued = false
 
     // Peek: hovering a faded window brings it back while the cursor rests.
@@ -123,7 +120,7 @@ final class OverlayController {
         }
         let pinned = pinnedWindows(anchor: anchor)
         if let anchor {
-            decide("parked-top-holes-\(pinned.count)-anchor-\(anchor.number)")
+            decide("seat-below-\(anchor.number)-holes-\(pinned.count)")
         } else {
             decide("no-anchor-desktop-cover-holes-\(pinned.count)")
         }
@@ -142,21 +139,20 @@ final class OverlayController {
                 continue
             }
             let window = window(for: screen, key: key)
-            // Fades re-trigger window-server animation work, so only fade in
-            // when actually hidden — never on steady-state applies.
-            if !window.isVisible || window.alphaValue < 1 {
-                window.fadeIn(animated: true)
-            }
-            if frontmostCoversScreen(screen) {
-                // A fullscreen window in front: park beneath it so the effect
-                // stays out of the way (same as a pause, without hiding).
-                if let anchor, lastAnchor[key] != anchor.number {
+            window.fadeIn(animated: true)
+            let now = CACurrentMediaTime()
+            if let anchor {
+                if lastAnchor[key] != anchor.number || now - lastSeatTime > 1.0 {
                     lastAnchor[key] = anchor.number
+                    lastSeatTime = now
                     window.order(.below, relativeTo: anchor.number)
                 }
-            } else if lastAnchor[key] != -2 {
-                lastAnchor[key] = -2
-                window.orderFrontRegardless()
+            } else {
+                if lastAnchor[key] != -2 || now - lastSeatTime > 1.0 {
+                    lastAnchor[key] = -2
+                    lastSeatTime = now
+                    window.orderFrontRegardless()
+                }
             }
             let radius = style == .blur || style == .both
                 ? settings.effectiveBlurRadius(forDisplay: key) : 0
@@ -165,9 +161,7 @@ final class OverlayController {
             let opacity: Float = style == .dim || style == .both
                 ? Float(settings.effectiveDimOpacity(forDisplay: key)) : 0
             window.setDim(opacity: opacity, animated: true)
-            // Holes for every sharp window including the anchor: the parked
-            // overlay can never cover the window in use.
-            window.setHoles(localHoles(pinned, on: window))
+            window.setHoles(localHoles(pinned.filter { $0.number != anchor?.number }, on: window))
         }
         return .none
     }
@@ -269,11 +263,9 @@ final class OverlayController {
     }
 
     private func isFullScreenActive() -> Bool {
-        NSScreen.screens.contains { frontmostCoversScreen($0) }
-    }
-
-    private func frontmostCoversScreen(_ screen: NSScreen) -> Bool {
-        frontmostRectOn(screen).map { coversScreen($0, screen.frame) } ?? false
+        NSScreen.screens.contains { screen in
+            frontmostRectOn(screen).map { coversScreen($0, screen.frame) } ?? false
+        }
     }
 
     private func frontmostRectOn(_ screen: NSScreen) -> NSRect? {
