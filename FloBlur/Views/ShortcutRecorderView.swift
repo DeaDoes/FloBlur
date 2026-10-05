@@ -70,6 +70,9 @@ struct ShortcutRecorderView: NSViewRepresentable {
         }
 
         private func updateAppearance() {
+            if isRecording {
+                title = "Type shortcut…"
+            }
             needsDisplay = true
         }
 

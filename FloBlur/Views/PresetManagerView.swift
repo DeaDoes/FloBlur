@@ -27,6 +27,9 @@ private struct PresetHotKeyRow: View {
                     .onChange(of: [keyCode, Int(modifiers)]) { _, _ in
                         settings.presetHotKeys[preset.id] = HotKeyCombo(keyCode: keyCode, modifiers: modifiers)
                         arming = false
+                        // Sentinel so re-recording the same combo later still commits.
+                        keyCode = -1
+                        modifiers = 0
                     }
             } else {
                 Button("Set…") { arming = true }
@@ -169,6 +172,7 @@ struct PresetManagerView: View {
     private func deleteSelected() {
         guard let selected = selectedPreset, !selected.isBuiltin else { return }
         settings.customPresets.removeAll { $0.id == selected.id }
+        settings.presetHotKeys[selected.id] = nil
         if settings.activePresetID == selected.id {
             settings.activePresetID = nil
         }

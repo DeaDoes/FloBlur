@@ -35,9 +35,7 @@ struct OnboardingView: View {
 
     private var welcomePage: some View {
         VStack(spacing: 12) {
-            Image(systemName: "circle.dashed")
-                .font(.system(size: 56))
-                .foregroundStyle(.blue)
+            AppIconImage(size: 56, cornerRadius: 13)
             Text("One clear window.")
                 .font(.largeTitle)
             Text("FloBlur keeps the window you're using sharp and softens everything behind it. No new workflow — just less in the way.")
@@ -58,7 +56,7 @@ struct OnboardingView: View {
                 .toggleStyle(.switch)
                 .font(.headline)
                 .padding(.top, 8)
-            Text("Tip: press ⌥⌘B anytime, from any app.")
+            Text("Tip: press \(HotKeyCombo(keyCode: settings.shortcutKeyCode, modifiers: settings.shortcutModifiers).displayString) anytime, from any app.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
@@ -117,7 +115,11 @@ struct OnboardingView: View {
                 .foregroundStyle(.secondary)
             Button("Start focusing") {
                 settings.completeOnboarding()
-                NSApp.keyWindow?.close()
+                if let onboarding = NSApp.windows.first(where: { $0.title == "Welcome to FloBlur" }) {
+                    onboarding.close()
+                } else {
+                    NSApp.keyWindow?.close()
+                }
             }
             .keyboardShortcut(.defaultAction)
             .padding(.top, 4)

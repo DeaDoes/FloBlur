@@ -3,6 +3,9 @@ import SwiftUI
 
 /// Brief floating bezel flashed on toggle, mirroring the original's
 /// `ToggleHUD`: icon + state (+preset), fading out after a moment.
+///
+/// Takes explicit `enabled` state and preset name dispatched from the
+/// post-mutation sink so what it shows always matches the master switch.
 final class ToggleHUD {
     private var panel: NSPanel?
     private var hideWork: DispatchWorkItem?
@@ -32,7 +35,10 @@ final class ToggleHUD {
             panel.contentView = hosting
             self.panel = panel
         }
-        guard let screen = NSScreen.main else { return }
+        let point = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first(where: { NSMouseInRect(point, $0.frame, false) })
+            ?? NSScreen.main
+        guard let screen else { return }
         let origin = NSPoint(
             x: screen.frame.midX - 110,
             y: screen.frame.maxY - 220

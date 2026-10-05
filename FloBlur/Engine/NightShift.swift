@@ -20,12 +20,16 @@ enum NightShift {
     /// 0 (off) or 1 (shifting). The original blends by a finer strength;
     /// the active flag is the part verified against its binary.
     static func strength() -> Double {
-        guard let client else { return 0 }
+        guard let client, client.responds(to: statusSelector) else { return 0 }
         var status = [UInt8](repeating: 0, count: 128)
         typealias Fn = @convention(c) (NSObject, Selector, UnsafeMutableRawPointer) -> Bool
         guard let imp = client.method(for: statusSelector) else { return 0 }
         let fn = unsafeBitCast(imp, to: Fn.self)
-        guard status.withUnsafeMutableBytes({ fn(client, statusSelector, $0.baseAddress!) }),
+        let ok = status.withUnsafeMutableBytes { buffer -> Bool in
+            guard let base = buffer.baseAddress else { return false }
+            return fn(client, statusSelector, base)
+        }
+        guard ok,
               status[0] != 0,
               status.count > 0x21,
               status[0x21] != 0
@@ -48,10 +52,16 @@ final class NightShiftMonitor {
             update(strength: 0)
             return
         }
-        timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
             self?.poll()
         }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
         poll()
+    }
+
+    deinit {
+        stop()
     }
 
     func stop() {

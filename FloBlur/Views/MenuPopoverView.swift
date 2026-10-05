@@ -18,7 +18,9 @@ struct MenuPopoverView: View {
             appearance
             Divider()
             stackingWarning
-            appRows
+            if frontAppBundleID != nil {
+                appRows
+            }
             sessionRow
             updaterRow
             settingsRow
@@ -33,10 +35,7 @@ struct MenuPopoverView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Image(systemName: "circle.dashed")
-                .font(.system(size: 30))
-                .frame(width: 40, height: 40)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Color.primary.opacity(0.08)))
+            AppIconImage(size: 40, cornerRadius: 9)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
                     Text("FloBlur")
@@ -251,6 +250,27 @@ struct MenuPopoverView: View {
 }
 
 // MARK: - Styles
+
+/// App icon with a system-image fallback (e.g. before resources load).
+struct AppIconImage: View {
+    var size: CGFloat
+    var cornerRadius: CGFloat
+
+    var body: some View {
+        Group {
+            if let nsImage = NSImage(named: "AppIcon") {
+                Image(nsImage: nsImage)
+                    .resizable()
+            } else {
+                Image(systemName: "circle.dashed")
+                    .font(.system(size: size * 0.75))
+            }
+        }
+        .frame(width: size, height: size)
+        .background(RoundedRectangle(cornerRadius: cornerRadius).fill(Color.primary.opacity(0.08)))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+    }
+}
 
 private struct PresetPillButton: ButtonStyle {
     var isActive: Bool

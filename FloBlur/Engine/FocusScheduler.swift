@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import UserNotifications
 
 /// Pomodoro session state, mirroring the original's Timing → Focus sessions.
 enum PomodoroPhase: String {
@@ -24,6 +25,8 @@ final class FocusScheduler: ObservableObject {
     @Published private(set) var phaseEndsAt: Date?
     @Published private(set) var completedRounds = 0
     @Published private(set) var scheduleActive = false
+    /// Ticks every second while a session runs so countdown labels stay live.
+    @Published private(set) var heartbeat = 0
 
     private let settings: FloBlurSettings
     private var timer: Timer?
@@ -48,10 +51,16 @@ final class FocusScheduler: ObservableObject {
 
     func start() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             self?.tick()
         }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
         tickSchedule()
+    }
+
+    deinit {
+        stop()
     }
 
     func stop() {
@@ -63,6 +72,9 @@ final class FocusScheduler: ObservableObject {
 
     func startSession() {
         completedRounds = 0
+        // One-time permission for phase-change notices; the system only
+        // ever prompts once and stays silent if declined.
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         beginFocus()
     }
 
@@ -117,8 +129,11 @@ final class FocusScheduler: ObservableObject {
     // MARK: - Schedule
 
     private func tick() {
-        if phase != .idle, let ends = phaseEndsAt, Date() >= ends {
-            advance()
+        if phase != .idle {
+            heartbeat += 1
+            if let ends = phaseEndsAt, Date() >= ends {
+                advance()
+            }
         }
         tickSchedule()
     }
@@ -134,9 +149,16 @@ final class FocusScheduler: ObservableObject {
         let cal = Calendar.current
         let weekday = cal.component(.weekday, from: now) // 1 = Sunday
         let minutes = cal.component(.hour, from: now) * 60 + cal.component(.minute, from: now)
-        let inHours = settings.scheduleWeekdays.contains(weekday)
-            && minutes >= settings.scheduleStartMinutes
-            && minutes < settings.scheduleEndMinutes
+        let inHours: Bool
+        if settings.scheduleEndMinutes <= settings.scheduleStartMinutes {
+            // Overnight window (e.g. 22:00 → 06:00).
+            inHours = settings.scheduleWeekdays.contains(weekday)
+                && (minutes >= settings.scheduleStartMinutes || minutes < settings.scheduleEndMinutes)
+        } else {
+            inHours = settings.scheduleWeekdays.contains(weekday)
+                && minutes >= settings.scheduleStartMinutes
+                && minutes < settings.scheduleEndMinutes
+        }
         guard inHours != scheduleActive else { return }
         scheduleActive = inHours
         if inHours {
@@ -150,9 +172,18 @@ final class FocusScheduler: ObservableObject {
     }
 
     private func notify(_ title: String, _ body: String) {
-        let note = NSUserNotification()
-        note.title = title
-        note.informativeText = body
-        NSUserNotificationCenter.default.deliver(note)
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            guard settings.authorizationStatus == .authorized else { return }
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            let request = UNNotificationRequest(
+                identifier: UUID().uuidString,
+                content: content,
+                trigger: nil
+            )
+            center.add(request)
+        }
     }
 }

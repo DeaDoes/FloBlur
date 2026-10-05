@@ -98,8 +98,7 @@ private struct GeneralPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
-                Image(systemName: "circle.dashed")
-                    .font(.system(size: 36))
+                AppIconImage(size: 40, cornerRadius: 9)
                 VStack(alignment: .leading) {
                     Text("FloBlur").font(.title2)
                     Text("Stay sharp. Defocus the rest.")
@@ -656,10 +655,14 @@ private struct TimingPane: View {
     private func timeBinding(_ minutes: Binding<Int>) -> Binding<Date> {
         Binding(
             get: {
-                var comps = DateComponents()
-                comps.hour = minutes.wrappedValue / 60
-                comps.minute = minutes.wrappedValue % 60
-                return Calendar.current.date(from: comps) ?? Date()
+                // Anchored to today: bare hour/minute components alone do not
+                // form a valid Date and the picker would show "now" instead.
+                Calendar.current.date(
+                    bySettingHour: minutes.wrappedValue / 60,
+                    minute: minutes.wrappedValue % 60,
+                    second: 0,
+                    of: Date()
+                ) ?? Date()
             },
             set: { date in
                 let comps = Calendar.current.dateComponents([.hour, .minute], from: date)
@@ -856,9 +859,7 @@ private struct AboutPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
-                Image(systemName: "circle.dashed")
-                    .font(.system(size: 44))
-                    .foregroundStyle(.blue)
+                AppIconImage(size: 44, cornerRadius: 10)
                 VStack(alignment: .leading) {
                     Text("FloBlur").font(.title2)
                     Text(versionString)

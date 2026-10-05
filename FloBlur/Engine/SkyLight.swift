@@ -9,11 +9,12 @@ import AppKit
 /// `isAvailable == false`) so callers fall back to dim-only.
 enum SkyLight {
     private static let api: (connection: Int32, setBlur: (Int32, Int, Int32) -> Int32)? = {
+        // Note: the handle intentionally leaks — the framework must stay
+        // loaded for the life of the process.
         guard let handle = dlopen(
             "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight",
             RTLD_NOW
         ) else { return nil }
-        defer { /* keep handle open for the life of the process */ }
         guard let symConn = dlsym(handle, "CGSMainConnectionID") else { return nil }
         typealias ConnFn = @convention(c) () -> Int32
         let connection = unsafeBitCast(symConn, to: ConnFn.self)()

@@ -13,6 +13,7 @@ final class ShakeDetector {
     private var reversals = 0
     private var windowStart = Date.distantPast
     private var hasPoint = false
+    private var lastFire = Date.distantPast
 
     /// - Parameter sensitivity: 0...1 from settings (`shakeSensitivity`).
     init(sensitivity: @escaping () -> Double) {
@@ -22,10 +23,16 @@ final class ShakeDetector {
     func start() {
         stop()
         monitors = [
-            NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged]) { [weak self] event in
+            // Note: drags excluded on purpose — dragging a window or slider
+            // back and forth reverses constantly and must never toggle.
+            NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { [weak self] _ in
                 self?.handleMovement(to: NSEvent.mouseLocation)
             },
         ].compactMap { $0 }
+    }
+
+    deinit {
+        stop()
     }
 
     func stop() {
@@ -45,7 +52,8 @@ final class ShakeDetector {
         }
         let dx = point.x - lastPoint.x
         lastPoint = point
-        guard abs(dx) >= 8 else { return } // ignore jitter
+        // Narrow legs are curves and jitter, not shakes.
+        guard abs(dx) >= 25 else { return }
         let direction = dx > 0 ? 1 : -1
         if now.timeIntervalSince(windowStart) > 0.9 {
             reversals = 0
@@ -56,11 +64,13 @@ final class ShakeDetector {
         if direction != lastDirection {
             lastDirection = direction
             reversals += 1
-            let needed = 3 + Int(((1 - min(max(sensitivity(), 0), 1)) * 5).rounded())
-            if reversals >= needed {
-                reset()
-                onShake?()
-            }
+            let needed = 4 + Int(((1 - min(max(sensitivity(), 0), 1)) * 4).rounded())
+            guard reversals >= needed else { return }
+            // Cooldown: one deliberate shake, one toggle — never strobe.
+            guard now.timeIntervalSince(lastFire) > 1.0 else { return }
+            lastFire = now
+            reset()
+            onShake?()
         }
     }
 

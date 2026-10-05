@@ -279,7 +279,7 @@ final class FloBlurSettings: ObservableObject {
             Keys.disableInFullScreen: true,
             Keys.disableWhileSharing: true,
             Keys.fadeDesktopWhenUnfocused: false,
-            Keys.peekEnabled: false,
+            Keys.peekEnabled: true,
             Keys.peekDelay: 0.45,
             Keys.fadeOnlyActiveDisplay: false,
             Keys.shakeEnabled: false,
@@ -315,6 +315,13 @@ final class FloBlurSettings: ObservableObject {
         disableWhileSharing = defaults.bool(forKey: Keys.disableWhileSharing)
         fadeDesktopWhenUnfocused = defaults.bool(forKey: Keys.fadeDesktopWhenUnfocused)
         peekEnabled = defaults.bool(forKey: Keys.peekEnabled)
+        if defaults.object(forKey: Keys.peekDefaultApplied) == nil {
+            // Hover-reveal on by default (matches how the effect is used).
+            // Runs once: an explicit user choice afterwards is respected.
+            peekEnabled = true
+            defaults.set(true, forKey: Keys.peekEnabled)
+            defaults.set(true, forKey: Keys.peekDefaultApplied)
+        }
         peekDelay = defaults.double(forKey: Keys.peekDelay)
         fadeOnlyActiveDisplay = defaults.bool(forKey: Keys.fadeOnlyActiveDisplay)
         displayOverrides = Self.decode([String: DisplayOverride].self, defaults.string(forKey: Keys.displayOverrides)) ?? [:]
@@ -331,7 +338,7 @@ final class FloBlurSettings: ObservableObject {
         // builds persisted NSEvent values (0x180000), which Carbon reads as
         // "no modifiers" — hijacking bare keypresses. Migrate those too.
         let fallback = UInt(cmdKey) | UInt(optionKey) // ⌥⌘
-        if savedMods == 0 || savedMods == (1 << 19) | (1 << 20) {
+        if savedMods == 0 || savedMods == ((1 << 19) | (1 << 20)) {
             shortcutModifiers = fallback
         } else {
             shortcutModifiers = UInt(savedMods)
@@ -384,6 +391,7 @@ final class FloBlurSettings: ObservableObject {
         static let fadeDesktopWhenUnfocused = "fadeDesktopWhenUnfocused"
         static let peekEnabled = "peekEnabled"
         static let peekDelay = "peekDelay"
+        static let peekDefaultApplied = "peekDefaultApplied"
         static let fadeOnlyActiveDisplay = "fadeOnlyActiveDisplay"
         static let displayOverrides = "displayOverrides"
         static let shakeEnabled = "shakeEnabled"

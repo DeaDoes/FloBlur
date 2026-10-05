@@ -117,6 +117,14 @@ final class OverlayWindow: NSWindow {
             path.addRect(hole)
         }
         let mask = CAShapeLayer()
+        // Pin the mask geometry to the masked layer: with an explicit frame
+        // the path coordinates map 1:1 under every mask-mapping rule, so
+        // holes can never drift onto a neighboring window.
+        mask.frame = layer.bounds
+        mask.bounds = layer.bounds
+        if let screenScale = NSScreen.main?.backingScaleFactor {
+            mask.contentsScale = screenScale
+        }
         mask.path = path
         mask.fillRule = .evenOdd
         layer.mask = mask
@@ -200,26 +208,31 @@ final class OverlayWindow: NSWindow {
 
     // MARK: - Show / hide (window-alpha fade; hide parks a delayed orderOut)
 
-    func fadeIn(animated: Bool) {
+    func fadeIn(animated: Bool, duration: TimeInterval = 0.15) {
         pendingOrderOut?.cancel()
         pendingOrderOut = nil
         if animated {
-            NSAnimationContext.runAnimationGroup { _ in
+            NSAnimationContext.runAnimationGroup({ ctx in
+                // Ease-out: covers most ground in the first third, so the
+                // return reads as instant while staying smooth.
+                ctx.duration = duration
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 animator().alphaValue = 1
-            }
+            })
         } else {
             alphaValue = 1
         }
     }
 
-    func fadeOut(animated: Bool) {
+    func fadeOut(animated: Bool, duration: TimeInterval = 0.18) {
         let work = DispatchWorkItem { [weak self] in
             self?.orderOut(nil)
         }
         pendingOrderOut?.cancel()
         pendingOrderOut = work
         if animated {
-            NSAnimationContext.runAnimationGroup({ _ in
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = duration
                 self.animator().alphaValue = 0
             }, completionHandler: {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
@@ -228,5 +241,16 @@ final class OverlayWindow: NSWindow {
             alphaValue = 0
             work.perform()
         }
+    }
+
+    /// Raw alpha fade with no ordering side effects: used to dip the overlay
+    /// out for Mission Control while keeping its seating and blur converged,
+    /// so the return is only a fade-in.
+    func fadeAlpha(to value: Double, duration: TimeInterval) {
+        guard abs(alphaValue - value) > 0.01 else { return }
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = duration
+            animator().alphaValue = value
+        })
     }
 }

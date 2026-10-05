@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     }
 
     func applicationDidFinishLaunching(_: Notification) {
+        retireDuplicateInstances()
         tracker.onSnapshot = { [weak self] snapshot in
             guard let self else { return }
             self.snapshotStore.snapshot = snapshot
@@ -34,19 +35,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             self.snapshotStore.paused = paused
             // Stacking census: other FloBlur copies / the paid app compositing
             // on top of us turn the background black — say so on screen.
-            self.snapshotStore.foreignFloBlurOverlays = max(
-                0,
-                snapshot.floBlurOverlays - self.overlay.visibleOverlayCount()
-            )
+            self.snapshotStore.foreignFloBlurOverlays = snapshot.floBlurOverlays
             self.snapshotStore.defocusRunning = snapshot.defocusOverlays > 0
             self.applyAutoPreset(snapshot: snapshot)
         }
 
         shakeDetector.onShake = { [weak self] in
-            self?.settings.isEnabled.toggle()
+            DispatchQueue.main.async {
+                self?.settings.isEnabled.toggle()
+            }
         }
         syncShakeDetector()
-        syncAllHotKeys()
+        // Note: no explicit syncAllHotKeys() here — the $ sinks below fire
+        // immediately on subscribe and cover the initial registration.
         nightShift.onChange = { [weak self] _ in
             self?.overlay.requestApply()
         }
@@ -69,11 +70,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             .store(in: &cancellables)
         settings.$customPresets.sink { [weak self] _ in self?.syncAllHotKeys() }
             .store(in: &cancellables)
-        settings.$isEnabled.dropFirst().sink { [weak self] _ in
-            guard let self else { return }
-            let preset = self.settings.preset(id: self.settings.activePresetID)
-            self.hud.flash(enabled: self.settings.isEnabled, presetName: preset?.name)
-        }.store(in: &cancellables)
+        // @Published publishers emit in willSet (before mutation commits).
+        // Hop to RunLoop.main so the sink executes post-didSet and the HUD
+        // always receives the committed state matching the switch.
+        settings.$isEnabled
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isEnabled in
+                guard let self else { return }
+                let preset = self.settings.preset(id: self.settings.activePresetID)
+                self.hud.flash(enabled: isEnabled, presetName: preset?.name)
+            }
+            .store(in: &cancellables)
         settings.$shakeEnabled.sink { [weak self] _ in self?.syncShakeDetector() }
             .store(in: &cancellables)
         settings.$warmWithNightShift.sink { [weak self] _ in
@@ -100,7 +108,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         if !settings.hasCompletedOnboarding {
             showOnboarding()
         }
-        print("[FloBlur] enabled=\(settings.isEnabled) style=\(settings.style.rawValue) blur=\(settings.blurIntensity) dim=\(settings.dimIntensity) skylight=\(SkyLight.isAvailable)")
 
         if settings.checkUpdatesAutomatically {
             DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
@@ -142,6 +149,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         onboardingWindow?.makeKeyAndOrderFront(nil)
     }
 
+    // MARK: - Single instance
+
+    /// The plist ban doesn't cover debugger launches, so enforce it here:
+    /// two copies mean two identical menu icons, popovers, and HUDs fighting
+    /// over one switch — every "opposite" report so far fits that shape.
+    /// Older copies quit gracefully (their own shutdown hides their overlay).
+    private func retireDuplicateInstances() {
+        let me = Bundle.main.bundleIdentifier
+        let mine = ProcessInfo.processInfo.processIdentifier
+        let others = NSWorkspace.shared.runningApplications.filter {
+            $0.bundleIdentifier == me && $0.processIdentifier != mine
+        }
+        guard !others.isEmpty else { return }
+        for app in others {
+            app.terminate()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            self?.forceRetireSurvivors()
+        }
+    }
+
+    private func forceRetireSurvivors() {
+        let me = Bundle.main.bundleIdentifier
+        let mine = ProcessInfo.processInfo.processIdentifier
+        let survivors = NSWorkspace.shared.runningApplications.filter {
+            $0.bundleIdentifier == me && $0.processIdentifier != mine
+        }
+        for app in survivors {
+            kill(app.processIdentifier, SIGKILL)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            let stillThere = NSWorkspace.shared.runningApplications.filter {
+                $0.bundleIdentifier == me && $0.processIdentifier != mine
+            }
+            if !stillThere.isEmpty {
+                let alert = NSAlert()
+                alert.messageText = "Another copy of FloBlur refused to quit."
+                alert.informativeText = "Two copies fight over the same switch, so the effect and the readouts can disagree. Force-quit the other FloBlur in Activity Monitor."
+                alert.addButton(withTitle: "OK")
+                NSApp.activate(ignoringOtherApps: true)
+                alert.runModal()
+            }
+        }
+    }
+
     // MARK: - URL schemes (floblur://toggle, on, off, preset/<id>,
     // pomodoro/start, pomodoro/skip, pomodoro/stop)
 
@@ -153,7 +205,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     private func handleURL(_ url: URL) {
         guard url.scheme == "floblur" else { return }
-        let parts = url.pathComponents.filter { $0 != "/" }
+        // `floblur://toggle` puts the action in host, not path — accept both.
+        var parts: [String] = []
+        if let host = url.host, !host.isEmpty {
+            parts.append(host)
+        }
+        parts += url.pathComponents.filter { $0 != "/" }
         switch parts.first {
         case "toggle":
             settings.isEnabled.toggle()
@@ -207,7 +264,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         hotKey.sync(
             main: settings.shortcutEnabled ? (main, true) : nil,
             presets: presets,
-            mainFire: { [weak self] in self?.settings.isEnabled.toggle() }
+            mainFire: { [weak self] in
+                self?.settings.isEnabled.toggle()
+            }
         )
     }
 

@@ -14,6 +14,8 @@ final class ActiveWindowTracker {
     var onSnapshot: ((DesktopSnapshot) -> Void)?
 
     private var timer: Timer?
+    private var mcTimer: Timer?
+    private var lastMC = false
     private var pollInterval = -1.0
     private var lastFullResolve = 0.0
     private var lastSnapshot = DesktopSnapshot.empty
@@ -21,7 +23,6 @@ final class ActiveWindowTracker {
     private var bundleIDCache: [pid_t: String] = [:]
     private var observers: [NSObjectProtocol] = []
     private let workspace = NSWorkspace.shared
-    private let ownPID = NSRunningApplication.current.processIdentifier
 
     func start() {
         stop()
@@ -46,11 +47,30 @@ final class ActiveWindowTracker {
         }
         updateCadence()
         refresh(force: true)
+        // Mission Control posts no workspace notification, so a dedicated
+        // fast watcher owns enter/exit latency (~10Hz cheap Dock scan).
+        // The main poll can sit in its 6s idle band otherwise.
+        lastMC = false
+        mcTimer?.invalidate()
+        // Common modes: a default-mode timer freezes for the whole gesture
+        // (event-tracking mode), which is exactly the ~1s dead wait on
+        // Mission Control exit. Common modes keep firing mid-gesture.
+        let mc = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.checkMissionControl()
+        }
+        RunLoop.main.add(mc, forMode: .common)
+        mcTimer = mc
+    }
+
+    deinit {
+        stop()
     }
 
     func stop() {
         timer?.invalidate()
         timer = nil
+        mcTimer?.invalidate()
+        mcTimer = nil
         pollInterval = -1
         for observer in observers {
             workspace.notificationCenter.removeObserver(observer)
@@ -116,8 +136,17 @@ final class ActiveWindowTracker {
 
     // MARK: - Snapshot
 
+    /// Fast Mission Control flip detector. Runs the cheap Dock-only scan;
+    /// on change, forces a full snapshot + overlay apply immediately.
+    private func checkMissionControl() {
+        let mc = Self.isMissionControlActive()
+        guard mc != lastMC else { return }
+        lastMC = mc
+        poll()
+    }
+
     private func poll() {
-        let snapshot = takeSnapshot()
+        let snapshot = takeSnapshot(ownPID: NSRunningApplication.current.processIdentifier)
         guard snapshot != lastSnapshot else { return }
         lastSnapshot = snapshot
         lastFullResolve = CACurrentMediaTime()
@@ -146,7 +175,7 @@ final class ActiveWindowTracker {
         return bid
     }
 
-    private func takeSnapshot() -> DesktopSnapshot {
+    private func takeSnapshot(ownPID: pid_t) -> DesktopSnapshot {
         var snapshot = DesktopSnapshot()
         var dockNames: [String] = []
         let frontmost = NSWorkspace.shared.frontmostApplication
@@ -163,9 +192,12 @@ final class ActiveWindowTracker {
             let owner = info[kCGWindowOwnerName as String] as? String ?? ""
             let name = info[kCGWindowName as String] as? String ?? ""
             let layer = Self.number(info[kCGWindowLayer as String])
+            let pid = Self.number(info[kCGWindowOwnerPID as String])
             if layer == 0 {
                 if owner == "FloBlur" {
-                    snapshot.floBlurOverlays += 1
+                    if let pid, pid_t(pid) != ownPID {
+                        snapshot.floBlurOverlays += 1
+                    }
                 } else if owner == "defocus.me" {
                     snapshot.defocusOverlays += 1
                 }
@@ -199,16 +231,28 @@ final class ActiveWindowTracker {
             ))
         }
         snapshot.captured = Self.anyDisplayCaptured()
-        if snapshot.missionControl, !Self.mcLogged {
-            Self.mcLogged = true
-            print("[FloBlur] MC-signal, Dock windows: \(dockNames)")
-        } else if !snapshot.missionControl {
-            Self.mcLogged = false
-        }
         return snapshot
     }
 
-    private static var mcLogged = false
+    /// Lightweight Mission Control / Exposé / Launchpad probe for the fast
+    /// watcher: single window-list fetch, Dock windows only.
+    static func isMissionControlActive() -> Bool {
+        guard let list = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements],
+            kCGNullWindowID
+        ) as? [[String: Any]] else { return false }
+        for info in list {
+            guard info[kCGWindowOwnerName as String] as? String == "Dock" else { continue }
+            let name = info[kCGWindowName as String] as? String ?? ""
+            if name.contains("Mission Control") || name.contains("Exposé") || name.contains("Expose") {
+                return true
+            }
+            if isFullScreenDockWindow(info) {
+                return true
+            }
+        }
+        return false
+    }
 
     /// A Dock-owned window covering (nearly) a whole screen.
     private static func isFullScreenDockWindow(_ info: [String: Any]) -> Bool {

@@ -88,6 +88,19 @@ final class OverlayController {
             snapshot.windows.removeAll { ownNumbers.contains($0.number) }
         }
 
+        // Mission Control / App Exposé (gesture or keyboard): with Blur or
+        // Both, dip out so every window shows sharp and identifiable.
+        // Dim-only keeps dimming, as dim always does. Only the alpha fades —
+        // seating, holes, and the converged blur stay parked, so the return
+        // is a single fade-in instead of a full rebuild.
+        if snapshot.missionControl, settings.style != .dim {
+            decide("mc-sharp")
+            for window in windows.values {
+                window.fadeAlpha(to: 0, duration: 0.15)
+            }
+            return .none
+        }
+
         if settings.disableWhileSharing, snapshot.captured {
             decide("paused-sharing")
             hideAll(animated: true)
@@ -165,6 +178,11 @@ final class OverlayController {
         }
         return .none
     }
+    
+    deinit {
+        shutdown()
+    }
+
     /// Full teardown for quit: never strand a visible overlay on screen.
     func shutdown() {
         enabled = false
@@ -194,14 +212,18 @@ final class OverlayController {
     /// Windows that stay sharp: the anchor's siblings (unless faded too),
     /// tiled neighbors, always-sharp apps, and the peek window.
     private func pinnedWindows(anchor: WindowInfo?) -> [WindowInfo] {
-        guard snapshot.activePID != nil else {
+        guard let activePID = snapshot.activePID else {
             // Bare desktop: only fade when asked to; always-sharp apps and
             // peek still cut holes.
             if !settings.fadeDesktopWhenUnfocused { return [] }
             return sharpExtras(excluding: nil)
         }
-        guard anchor != nil else { return [] }
-        guard let activePID = snapshot.activePID else { return [] }
+        guard anchor != nil else {
+            // Front app has no qualifying window: same desktop rule — fade it
+            // (if asked) but keep always-sharp apps sharp.
+            if !settings.fadeDesktopWhenUnfocused { return [] }
+            return sharpExtras(excluding: activePID)
+        }
         let mine = snapshot.windows.filter { $0.pid == activePID }
         var pinned = mine
         if settings.fadeOtherWindowsOfSameApp {
@@ -331,9 +353,13 @@ final class OverlayController {
 
     private func startPeekPump() {
         stopPeekPump()
-        peekPump = Timer.scheduledTimer(withTimeInterval: 1 / 30, repeats: true) { [weak self] _ in
+        // Common modes: mouse drags run the loop in event-tracking mode,
+        // which would stall a default-mode timer and delay the reveal.
+        let pump = Timer(timeInterval: 1 / 30, repeats: true) { [weak self] _ in
             self?.tickPeek()
         }
+        RunLoop.main.add(pump, forMode: .common)
+        peekPump = pump
     }
 
     private func stopPeekPump() {
@@ -347,7 +373,12 @@ final class OverlayController {
               hoverCandidate != nil,
               Date() >= peekDeadline
         else {
-            if peekNumber != nil || hoverCandidate == nil { stopPeekPump() }
+            // Anything other than "still waiting out the delay" stops the
+            // pump — including peek being disabled mid-hover, which would
+            // otherwise spin it forever.
+            if !settings.peekEnabled || !enabled || peekNumber != nil || hoverCandidate == nil {
+                stopPeekPump()
+            }
             return
         }
         peekNumber = hoverCandidate
@@ -392,7 +423,6 @@ final class OverlayController {
     private func decide(_ decision: String) {
         guard decision != lastDecision else { return }
         lastDecision = decision
-        print("[FloBlur] \(decision)")
     }
 
     private func displayKey(for screen: NSScreen) -> String {
