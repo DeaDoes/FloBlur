@@ -158,7 +158,7 @@ private struct GeneralPane: View {
                     Toggle("", isOn: $settings.downloadUpdatesAutomatically).labelsHidden()
                 }
                 Divider()
-                Text("Downloaded updates are installed safely when FloBlur quits.")
+                Text("Downloaded updates install when FloBlur relaunches.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)

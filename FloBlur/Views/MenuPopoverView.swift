@@ -230,12 +230,11 @@ struct MenuPopoverView: View {
 
     private var updaterRow: some View {
         Button {
-            UpdateChecker.check()
+            app.updaterController.checkForUpdates(nil)
         } label: {
             Label("Check for Updates…", systemImage: "arrow.down.circle")
         }
         .buttonStyle(PopoverRowButton(isOn: false))
-        .disabled(!UpdateChecker.isConfigured)
     }
 
     private var settingsRow: some View {

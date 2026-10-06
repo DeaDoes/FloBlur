@@ -1,0 +1,126 @@
+# FloBlur public release pipeline.
+#
+# Trigger:  push a tag like v1.0  (tag MUST equal MARKETING_VERSION in the
+#           project — the job fails fast otherwise, so a mistag never ships).
+# Output:   GitHub Release named by the tag, carrying:
+#             - FloBlur-<ver>.dmg  (humans: drag into Applications)
+#             - FloBlur-<ver>.zip  (Sparkle: in-app update with progress)
+#           plus an updated appcast.xml committed back to main.
+#
+# Signing:  self-signed identity from repo secrets. No notarization step on
+#           purpose: that needs a paid Apple Developer Program membership.
+#           First open on other Macs = right-click > Open.
+#           In-app updates are verified by Sparkle EdDSA signatures, which
+#           need no Apple involvement at all.
+#
+# Secrets required (repo Settings > Secrets and variables > Actions):
+#   MACOS_CERT_P12       base64 of the exported code-signing .p12
+#   MACOS_CERT_PASSWORD  the .p12 export password
+#   MACOS_CERT_NAME      signing identity name (e.g. FloBlur)
+#   SPARKLE_ED_KEY       Sparkle Ed25519 private key (keychain item,
+#                        account "ed25519": `security find-generic-password
+#                        -a ed25519 -w` on the machine that ran generate_keys)
+
+name: Release DMG
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          BUILD="$(xcodebuild -project FloBlur.xcodeproj -scheme FloBlur -configuration Release -showBuildSettings 2>/dev/null | grep -m1 CURRENT_PROJECT_VERSION | awk '{print $3}')"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          PROJECT_VER=$(xcodebuild -project FloBlur.xcodeproj -scheme FloBlur -configuration Release -showBuildSettings 2>/dev/null | grep -m1 MARKETING_VERSION | awk '{print $3}')
+          echo "project marketing version: $PROJECT_VER"
+          if [ "$TAG" != "$PROJECT_VER" ]; then
+            echo "ERROR: tag v$TAG != MARKETING_VERSION $PROJECT_VER — bump the project first."
+            exit 1
+          fi
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer || true
+
+      - name: Import signing certificate
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/build.keychain"
+          KCPASS="$(openssl rand -base64 24)"
+          security create-keychain -p "$KCPASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KCPASS" "$KEYCHAIN"
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KCPASS" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+      - name: Install Sparkle tools
+        run: |
+          curl -sL -o /tmp/sparkle.tar.xz https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz
+          mkdir -p /tmp/sparkle-tools
+          tar -xf /tmp/sparkle.tar.xz -C /tmp/sparkle-tools ./bin/
+          /tmp/sparkle-tools/bin/sign_update --help >/dev/null
+
+      - name: Build signed DMG
+        env:
+          SIGN_IDENTITY: ${{ secrets.MACOS_CERT_NAME }}
+        run: |
+          chmod +x Tools/build-dmg.sh
+          ./Tools/build-dmg.sh "${{ steps.version.outputs.tag }}"
+
+      - name: Build + sign Sparkle update archive
+        env:
+          SPARKLE_ED_KEY: ${{ secrets.SPARKLE_ED_KEY }}
+        run: |
+          VER="${{ steps.version.outputs.tag }}"
+          APP="$(ls -d ~/Library/Developer/Xcode/DerivedData/FloBlur-*/Build/Products/Release/FloBlur.app | head -n 1)"
+          ditto -c -k --keepParent "$APP" "dist/FloBlur-$VER.zip"
+          SIG_OUT="$(echo "$SPARKLE_ED_KEY" | /tmp/sparkle-tools/bin/sign_update --ed-key-file - "dist/FloBlur-$VER.zip" -p)"
+          echo "EDSIGNATURE<<EOF" >> "$GITHUB_ENV"
+          echo "$SIG_OUT" | grep -o 'sparkle:edSignature="[^"]*"' | cut -d'"' -f2 >> "$GITHUB_ENV"
+          echo "EOF" >> "$GITHUB_ENV"
+          echo "ZIPLENGTH=$(stat -f%z "dist/FloBlur-$VER.zip")" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VER="${TAG#v}"
+          gh release create "$TAG" "dist/FloBlur-$VER.dmg" "dist/FloBlur-$VER.zip" \
+            --title "FloBlur $VER" \
+            --notes "Download FloBlur-$VER.dmg, drag into Applications, right-click > Open on first launch."
+
+      - name: Update appcast and push back
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VER="${TAG#v}"
+          python3 Tools/update-appcast.py --feed appcast.xml --tag "$TAG" \
+            --short-version "$VER" --build "${{ steps.version.outputs.build }}" \
+            --asset-url "https://github.com/${{ github.repository }}/releases/download/$TAG/FloBlur-$VER.zip" \
+            --length "$ZIPLENGTH" --edsig "$EDSIGNATURE"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add appcast.xml
+          git diff --cached --quiet || git commit -m "appcast: publish $TAG"
+          git push origin HEAD:main

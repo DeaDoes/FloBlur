@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import Sparkle
 
 /// Wires the tracker to the overlay and menu state, and owns the
 /// long-lived services (hotkey, scheduler).
@@ -13,6 +14,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     let scheduler: FocusScheduler
     let nightShift = NightShiftMonitor()
     let hud = ToggleHUD()
+    /// Sparkle updater (in-app updates with progress + install-and-relaunch).
+    /// Feed + EdDSA key come from Info.plist (SUFeedURL / SUPublicEDKey).
+    /// The General toggles stay the source of truth and mirror into it.
+    let updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
     private lazy var shakeDetector = ShakeDetector(sensitivity: { [weak self] in
         self?.settings.shakeSensitivity ?? 0.5
     })
@@ -94,6 +99,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             .store(in: &cancellables)
         settings.$shakeEnabled.sink { [weak self] _ in self?.syncShakeDetector() }
             .store(in: &cancellables)
+        // Sparkle mirrors our update prefs (initial + every change).
+        settings.$checkUpdatesAutomatically
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.syncUpdaterPrefs() }
+            .store(in: &cancellables)
+        settings.$downloadUpdatesAutomatically
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.syncUpdaterPrefs() }
+            .store(in: &cancellables)
         settings.$warmWithNightShift.sink { [weak self] _ in
             guard let self else { return }
             self.nightShift.sync(enabled: self.settings.warmWithNightShift)
@@ -114,16 +128,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         tracker.start()
         scheduler.start()
         refreshOverlay()
+        syncUpdaterPrefs()
 
         if !settings.hasCompletedOnboarding {
             showOnboarding()
-        }
-
-        if settings.checkUpdatesAutomatically {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-                guard let self else { return }
-                UpdateChecker.check(autoDownload: self.settings.downloadUpdatesAutomatically)
-            }
         }
     }
 
@@ -296,6 +304,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         } else {
             shakeDetector.stop()
         }
+    }
+
+    private func syncUpdaterPrefs() {
+        updaterController.updater.automaticallyChecksForUpdates = settings.checkUpdatesAutomatically
+        updaterController.updater.automaticallyDownloadsUpdates = settings.downloadUpdatesAutomatically
     }
 
     private func refreshOverlay() {

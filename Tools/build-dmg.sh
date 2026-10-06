@@ -38,19 +38,21 @@ cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 
 hdiutil create -srcfolder "$STAGE" -format UDRW -ov -o "$RW" >/dev/null
-# A stale mount would steal the "FloBlur" name at rename time ("FloBlur 1")
-# and break detach-by-path afterwards — clear them first.
-for m in "/Volumes/FloBlur" "/Volumes/FloBlur 1" "/Volumes/floblur-dmg"; do
-  [ -d "$m" ] && hdiutil detach "$m" >/dev/null 2>&1 || true
+# Explicit /Volumes mountpoint: Finder cannot address disks mounted
+# anywhere else (`tell disk` -> -1728), and bare attaches risk "Name 1"
+# suffix collisions. Stale same-name mounts are force-detached first.
+for m in /Volumes/FloBlur*(N) /Volumes/floblur-dmg*(N); do
+  hdiutil detach "$m" -force >/dev/null 2>&1 || true
 done
-ATTACH_OUT="$(hdiutil attach "$RW" -nobrowse)"
-DEV="$(printf '%s' "$ATTACH_OUT" | grep -o '/dev/disk[0-9]*' | head -n 1)"
-VOL="$(printf '%s' "$ATTACH_OUT" | awk '{print $NF}')"
-[ -n "$DEV" ] && [ -d "$VOL" ] || { echo "ERROR: attach failed"; exit 1; }
+MNT="/Volumes/floblur-dmg"
+rm -rf "$MNT"
+hdiutil attach "$RW" -nobrowse -mountpoint "$MNT" >/dev/null
+[ -d "$MNT/FloBlur.app" ] || { echo "ERROR: attach failed"; exit 1; }
+VOL="$MNT"
 mkdir -p "$VOL/.background"
 cp "Tools/dmg-background.png" "$VOL/.background/background.png"
 
-osascript -e 'tell application "Finder"
+if osascript -e 'tell application "Finder"
   tell disk "floblur-dmg"
     open
     set current view of container window to icon view
@@ -67,15 +69,30 @@ osascript -e 'tell application "Finder"
     update without registering applications
     delay 1
   end tell
-end tell'
+end tell'; then
+  # A passing script that wrote no .DS_Store means silent unstyled output:
+  # fail loudly instead of shipping a plain-looking DMG.
+  if [ ! -f "$VOL/.DS_Store" ]; then
+    echo "ERROR: Finder layout ran but .DS_Store missing — refusing silent unstyled DMG"
+    exit 1
+  fi
+else
+  # Headless runners have no Finder session: keep going with an unstyled
+  # but fully valid DMG instead of failing the release.
+  echo "WARNING: Finder layout skipped (no GUI session); DMG stays valid."
+fi
 
 # Volume icon AFTER layout (Finder strips dotfiles during layout).
 cp "FloBlur/AppIcon.icns" "$VOL/.VolumeIcon.icns"
 SetFile -a C "$VOL/.VolumeIcon.icns"
 SetFile -a C "$VOL"
+# Capture the device node BEFORE renaming: after `diskutil rename` the
+# mountpoint changes and grepping the old path yields an empty DEV,
+# which makes detach fail the whole release.
+DEV="$(hdiutil info | grep -B1 "$VOL" | grep -o '/dev/disk[0-9]*' | head -n 1)"
 diskutil rename "$VOL" "FloBlur" >/dev/null
-# Detach by device node: mountpoint renames can lag ("FloBlur 1"), the
-# device node never lies. Verify by listing before converting.
+# Detach by device node: the mountpoint path is ours alone, but the node
+# never lies. Verify by listing before converting.
 hdiutil detach "$DEV" >/dev/null
 sleep 1
 if ls /Volumes/ | grep -qx "FloBlur"; then
@@ -85,9 +102,13 @@ fi
 hdiutil convert "$RW" -format UDZO -ov -o "$OUT" >/dev/null
 rm -f "$RW"
 hdiutil verify "$OUT" | tail -n 1
-hdiutil attach "$OUT" -nobrowse -readonly >/dev/null
-codesign -dvv "/Volumes/FloBlur/FloBlur.app" 2>&1 | grep Authority
-ls "/Volumes/FloBlur/"
-hdiutil detach "/Volumes/FloBlur" >/dev/null
+VMNT="/tmp/floblur-verify"
+rm -rf "$VMNT"
+mkdir -p "$VMNT"
+hdiutil attach "$OUT" -nobrowse -readonly -mountpoint "$VMNT" >/dev/null
+codesign -dvv "$VMNT/FloBlur.app" 2>&1 | grep Authority
+ls -la "$VMNT/"
+hdiutil detach "$VMNT" >/dev/null
+rmdir "$VMNT" 2>/dev/null || true
 ls -la "$OUT"
 echo "==> DONE: $OUT"

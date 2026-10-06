@@ -20,7 +20,6 @@
 		BLDFST000000000000000001 /* FocusState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILFST000000000000000001 /* FocusState.swift */; };
 		BLDHKY000000000000000001 /* HotKeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILHKY000000000000000001 /* HotKeyManager.swift */; };
 		BLDSCH000000000000000001 /* FocusScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILSCH000000000000000001 /* FocusScheduler.swift */; };
-		BLDUPD000000000000000001 /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILUPD000000000000000001 /* UpdateChecker.swift */; };
 		BLDOVW000000000000000001 /* OverlayWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILOVW000000000000000001 /* OverlayWindow.swift */; };
 		BLDNST000000000000000001 /* NightShift.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILNST000000000000000001 /* NightShift.swift */; };
 		BLDSHK000000000000000001 /* ShakeDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILSHK000000000000000001 /* ShakeDetector.swift */; };
@@ -47,7 +46,6 @@
 		FILFST000000000000000001 /* FocusState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusState.swift; sourceTree = "<group>"; };
 		FILHKY000000000000000001 /* HotKeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotKeyManager.swift; sourceTree = "<group>"; };
 		FILSCH000000000000000001 /* FocusScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusScheduler.swift; sourceTree = "<group>"; };
-		FILUPD000000000000000001 /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
 		FILOVW000000000000000001 /* OverlayWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayWindow.swift; sourceTree = "<group>"; };
 		FILNST000000000000000001 /* NightShift.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightShift.swift; sourceTree = "<group>"; };
 		FILSHK000000000000000001 /* ShakeDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShakeDetector.swift; sourceTree = "<group>"; };
@@ -131,7 +129,6 @@
 				FILFST000000000000000001 /* FocusState.swift */,
 				FILHKY000000000000000001 /* HotKeyManager.swift */,
 				FILSCH000000000000000001 /* FocusScheduler.swift */,
-				FILUPD000000000000000001 /* UpdateChecker.swift */,
 				FILNST000000000000000001 /* NightShift.swift */,
 				FILSHK000000000000000001 /* ShakeDetector.swift */,
 				FILTGL000000000000000001 /* ToggleHUD.swift */,
@@ -155,6 +152,9 @@
 			dependencies = (
 			);
 			name = FloBlur;
+			packageProductDependencies = (
+				PKGSPK00000000000000000002 /* Sparkle */,
+			);
 			productName = FloBlur;
 			productReference = FILPROD00000000000000001 /* FloBlur.app */;
 			productType = "com.apple.product-type.application";
@@ -176,6 +176,9 @@
 				en,
 			);
 			mainGroup = GRP0000000000000000000001;
+			packageReferences = (
+				PKGSPK00000000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			productRefGroup = GRP0000000000000000000005 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -214,7 +217,6 @@
 				BLDFST000000000000000001 /* FocusState.swift in Sources */,
 				BLDHKY000000000000000001 /* HotKeyManager.swift in Sources */,
 				BLDSCH000000000000000001 /* FocusScheduler.swift in Sources */,
-				BLDUPD000000000000000001 /* UpdateChecker.swift in Sources */,
 				BLDOVW000000000000000001 /* OverlayWindow.swift in Sources */,
 				BLDNST000000000000000001 /* NightShift.swift in Sources */,
 				BLDSHK000000000000000001 /* ShakeDetector.swift in Sources */,
@@ -297,7 +299,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = me.floblur.FloBlur;
 				PRODUCT_NAME = FloBlur;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
@@ -323,7 +325,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = me.floblur.FloBlur;
 				PRODUCT_NAME = FloBlur;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -353,6 +355,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		PKGSPK00000000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.10.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		PKGSPK00000000000000000002 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = PKGSPK00000000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = PROJ0000000000000000000001 /* Project object */;
 }
