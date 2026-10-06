@@ -27,6 +27,13 @@ on:
   push:
     tags:
       - "v*"
+  # Manual re-run without moving tags (e.g. resume after a late-step
+  # failure). Same path, same guards — tag must exist and match the project.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release (e.g. v1.0)"
+        required: true
 
 permissions:
   contents: write
@@ -37,18 +44,34 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v4
+        with:
+          # Manual runs check out the tag too, not the branch they were
+          # launched from — same code as a tag push, every time.
+          ref: ${{ inputs.tag || github.ref }}
 
-      - name: Version from tag
+      - name: Resolve tag
         id: version
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          if [ -n "${{ inputs.tag }}" ]; then
+            RAW="${{ inputs.tag }}"
+          else
+            RAW="${GITHUB_REF_NAME}"
+          fi
+          # Tolerate "1.0" or "v1.0" input; canonical TAG always v-prefixed.
+          case "$RAW" in
+            v*) TAG="$RAW" ;;
+            *) TAG="v$RAW" ;;
+          esac
+          VER="${TAG#v}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ver=$VER" >> "$GITHUB_OUTPUT"
+          git fetch origin "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null || true
           BUILD="$(xcodebuild -project FloBlur.xcodeproj -scheme FloBlur -configuration Release -showBuildSettings 2>/dev/null | grep -m1 CURRENT_PROJECT_VERSION | awk '{print $3}')"
           echo "build=$BUILD" >> "$GITHUB_OUTPUT"
           PROJECT_VER=$(xcodebuild -project FloBlur.xcodeproj -scheme FloBlur -configuration Release -showBuildSettings 2>/dev/null | grep -m1 MARKETING_VERSION | awk '{print $3}')
           echo "project marketing version: $PROJECT_VER"
-          if [ "$TAG" != "$PROJECT_VER" ]; then
-            echo "ERROR: tag v$TAG != MARKETING_VERSION $PROJECT_VER — bump the project first."
+          if [ "$VER" != "$PROJECT_VER" ]; then
+            echo "ERROR: tag $TAG != MARKETING_VERSION $PROJECT_VER — bump the project first."
             exit 1
           fi
 
@@ -84,13 +107,13 @@ jobs:
           SIGN_IDENTITY: ${{ secrets.MACOS_CERT_NAME }}
         run: |
           chmod +x Tools/build-dmg.sh
-          ./Tools/build-dmg.sh "${{ steps.version.outputs.tag }}"
+          ./Tools/build-dmg.sh "${{ steps.version.outputs.ver }}"
 
       - name: Build + sign Sparkle update archive
         env:
           SPARKLE_ED_KEY: ${{ secrets.SPARKLE_ED_KEY }}
         run: |
-          VER="${{ steps.version.outputs.tag }}"
+          VER="${{ steps.version.outputs.ver }}"
           APP="$(ls -d ~/Library/Developer/Xcode/DerivedData/FloBlur-*/Build/Products/Release/FloBlur.app | head -n 1)"
           ditto -c -k --keepParent "$APP" "dist/FloBlur-$VER.zip"
           SIG_OUT="$(echo "$SPARKLE_ED_KEY" | /tmp/sparkle-tools/bin/sign_update --ed-key-file - "dist/FloBlur-$VER.zip" -p)"
@@ -103,18 +126,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          VER="${TAG#v}"
-          gh release create "$TAG" "dist/FloBlur-$VER.dmg" "dist/FloBlur-$VER.zip" \
-            --title "FloBlur $VER" \
-            --notes "Download FloBlur-$VER.dmg, drag into Applications, right-click > Open on first launch."
+          TAG="${{ steps.version.outputs.tag }}"
+          VER="${{ steps.version.outputs.ver }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists — uploading assets (clobber)."
+            gh release upload "$TAG" "dist/FloBlur-$VER.dmg" "dist/FloBlur-$VER.zip" --clobber
+          else
+            gh release create "$TAG" "dist/FloBlur-$VER.dmg" "dist/FloBlur-$VER.zip" \
+              --title "FloBlur $VER" \
+              --notes "Download FloBlur-$VER.dmg, drag into Applications, right-click > Open on first launch."
+          fi
 
       - name: Update appcast and push back
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          VER="${TAG#v}"
+          TAG="${{ steps.version.outputs.tag }}"
+          VER="${{ steps.version.outputs.ver }}"
           python3 Tools/update-appcast.py --feed appcast.xml --tag "$TAG" \
             --short-version "$VER" --build "${{ steps.version.outputs.build }}" \
             --asset-url "https://github.com/${{ github.repository }}/releases/download/$TAG/FloBlur-$VER.zip" \
@@ -122,5 +150,23 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add appcast.xml
-          git diff --cached --quiet || git commit -m "appcast: publish $TAG"
-          git push origin HEAD:main
+          if git diff --cached --quiet; then
+            echo "appcast already current — nothing to push."
+            exit 0
+          fi
+          git commit -m "appcast: publish $TAG"
+          git log --oneline -2
+          # Main may have moved since the tag: rebase first, retry the push —
+          # a push that silently does nothing ships a stale feed, so verify.
+          git fetch origin main
+          git rebase origin/main || git rebase --abort
+          for i in 1 2 3; do
+            if git push origin HEAD:main; then
+              break
+            fi
+            echo "push attempt $i failed, retrying…"
+            sleep 10
+          done
+          git ls-remote origin main | grep -q "$(git rev-parse HEAD)" \
+            && echo "appcast push VERIFIED on origin/main" \
+            || { echo "ERROR: appcast commit missing from origin/main"; exit 1; }
