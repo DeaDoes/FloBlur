@@ -15,6 +15,7 @@ build/
 *.perspectivev3
 !default.perspectivev3
 xcuserdata/
+*.xcuserstate
 *.xccheckout
 *.moved-aside
 DerivedData/
@@ -38,3 +39,7 @@ dist/
 *.p12
 *.mobileprovision
 GoogleService-Info.plist
+
+# Python bytecode (Tools/update-appcast.py)
+__pycache__/
+*.py[cod]

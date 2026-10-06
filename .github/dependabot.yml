@@ -1,0 +1,19 @@
+# Keep the shipped toolchain and CI actions current.
+#
+# The app has exactly one runtime dependency (Sparkle, resolved via SwiftPM),
+# so this only watches GitHub Actions and nothing else.
+
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels: ["ci"]
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns: ["*"]

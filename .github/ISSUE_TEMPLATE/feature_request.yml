@@ -1,0 +1,58 @@
+name: Feature request
+description: Suggest a capability, preset, or behaviour for FloBlur
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please open an issue before implementing anything substantial — the
+        window-layer and private-API parts of this codebase have constraints
+        that are easier to agree on than to redo.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the situation, not the solution. This is the most useful part.
+      placeholder: |
+        When I switch to a full-screen video call app I have to remember to turn
+        FloBlur off manually, and the desktop behind the call ends up dimmed and
+        unreadable for everyone else in the call.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like FloBlur to do instead
+      description: A sketch is fine. Include presets, settings, or URLs you'd expect.
+      placeholder: |
+        Maybe the existing "Turn off while sharing or presenting" toggle should
+        also cover full-screen video apps, since those already enter a
+        full-screen-like state.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area?
+      multiple: true
+      options:
+        - Effect (blur / dim / colours)
+        - Presets or automation
+        - Menu-bar popover
+        - Settings window
+        - Displays / multi-monitor
+        - Timing (working hours, focus sessions)
+        - Keyboard shortcuts / URL scheme
+        - Updates / packaging
+        - Documentation
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you have considered
+      description: macOS built-ins, other focus apps, Shortcuts workarounds.
