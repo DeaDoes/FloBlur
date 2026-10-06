@@ -26,7 +26,13 @@ APP="$(ls -d ~/Library/Developer/Xcode/DerivedData/FloBlur-*/Build/Products/Rele
 echo "==> Architectures: $(lipo -archs "$APP/Contents/MacOS/FloBlur")"
 
 echo "==> Signing as $SIGN_IDENTITY"
-codesign --deep --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
+# NOTE: deliberately NO `--options runtime` (hardened runtime). With a
+# self-signed identity (no Team ID), hardened runtime turns on library
+# validation and dyld refuses our own re-signed Sparkle.framework at
+# launch ("different Team IDs") — the app crash-loops on other Macs.
+# Debug builds never hit this (ad-hoc = validation off). Re-add `runtime`
+# only together with a real Developer ID signature.
+codesign --deep --force --timestamp --sign "$SIGN_IDENTITY" "$APP"
 codesign -dvv "$APP" 2>&1 | grep -E "Authority|Signature"
 
 STAGE="$(mktemp -d)/floblur-dmg"
