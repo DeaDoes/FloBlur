@@ -3,9 +3,6 @@
 One clear window. A free, open-source focus effect for macOS: keep the window
 you're using sharp and soften everything behind it with blur, dim, or both.
 
-Inspired by [defocus.me](https://defocus.me). Independent project, no
-affiliation. All code here is written from scratch for this repository.
-
 ## Features
 
 - **Blur / Dim / Both** background effect with per-display overlays
