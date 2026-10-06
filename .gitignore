@@ -20,6 +20,8 @@ xcuserdata/
 DerivedData/
 *.hmap
 *.ipa
+*.dmg
+dist/
 *.dSYM.zip
 *.dSYM
 

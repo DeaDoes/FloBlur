@@ -119,11 +119,14 @@ enum MenuBarIcon {
             ctx.strokePath()
             ctx.restoreGState()
 
-            // Inner iris with cutout pupil
+            // Inner iris with cutout pupil. Matches the app icon: the iris
+            // is a horizontal oval (measured 1.25:1), the pupil a circle
+            // at ~0.27x the iris width.
             ctx.saveGState()
-            let rIris = 4.5 * s
-            let rPupil = 1.6 * s
-            ctx.addEllipse(in: CGRect(x: center.x - rIris, y: center.y - rIris, width: rIris * 2, height: rIris * 2))
+            let rIrisX = 4.5 * s
+            let rIrisY = 3.6 * s
+            let rPupil = 1.2 * s
+            ctx.addEllipse(in: CGRect(x: center.x - rIrisX, y: center.y - rIrisY, width: rIrisX * 2, height: rIrisY * 2))
             ctx.addEllipse(in: CGRect(x: center.x - rPupil, y: center.y - rPupil, width: rPupil * 2, height: rPupil * 2))
             ctx.setFillColor(NSColor.black.cgColor)
             ctx.fillPath(using: .evenOdd)

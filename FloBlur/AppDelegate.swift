@@ -120,8 +120,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
 
         if settings.checkUpdatesAutomatically {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                UpdateChecker.check()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+                guard let self else { return }
+                UpdateChecker.check(autoDownload: self.settings.downloadUpdatesAutomatically)
             }
         }
     }
