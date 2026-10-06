@@ -25,13 +25,17 @@ final class FocusScheduler: ObservableObject {
     @Published private(set) var phaseEndsAt: Date?
     @Published private(set) var completedRounds = 0
     @Published private(set) var scheduleActive = false
+    @Published private(set) var isPaused = false
     /// Ticks every second while a session runs so countdown labels stay live.
     @Published private(set) var heartbeat = 0
+
+    private var pausedRemaining: TimeInterval = 0
 
     private let settings: FloBlurSettings
     private var timer: Timer?
 
     var timeRemaining: TimeInterval {
+        if isPaused { return max(0, pausedRemaining) }
         guard let ends = phaseEndsAt else { return 0 }
         return max(0, ends.timeIntervalSinceNow)
     }
@@ -39,6 +43,7 @@ final class FocusScheduler: ObservableObject {
     var sessionLabel: String? {
         let remaining = Int(timeRemaining.rounded(.up))
         let clock = String(format: "%d:%02d", remaining / 60, remaining % 60)
+        if isPaused, phase != .idle { return "Paused · \(clock) left" }
         switch phase {
         case .idle: return nil
         case .focus: return "Focusing · \(clock) left"
@@ -83,7 +88,26 @@ final class FocusScheduler: ObservableObject {
     func stopSession() {
         phase = .idle
         phaseEndsAt = nil
+        isPaused = false
+        pausedRemaining = 0
         restoreScheduleState()
+    }
+
+    func pauseSession() {
+        guard phase != .idle, !isPaused else { return }
+        pausedRemaining = timeRemaining
+        isPaused = true
+    }
+
+    func resumeSession() {
+        guard phase != .idle, isPaused else { return }
+        phaseEndsAt = Date().addingTimeInterval(pausedRemaining)
+        pausedRemaining = 0
+        isPaused = false
+    }
+
+    func togglePause() {
+        isPaused ? resumeSession() : pauseSession()
     }
 
     func skipPhase() {
@@ -92,6 +116,8 @@ final class FocusScheduler: ObservableObject {
 
     private func beginFocus() {
         phase = .focus
+        isPaused = false
+        pausedRemaining = 0
         phaseEndsAt = Date().addingTimeInterval(TimeInterval(settings.pomodoroFocusMinutes * 60))
         if let preset = settings.preset(id: settings.pomodoroPresetID) {
             settings.applyPreset(preset)
@@ -102,6 +128,8 @@ final class FocusScheduler: ObservableObject {
 
     private func beginBreak(long: Bool) {
         phase = long ? .longBreak : .pauseBreak
+        isPaused = false
+        pausedRemaining = 0
         let minutes = long ? settings.pomodoroLongBreakMinutes : settings.pomodoroBreakMinutes
         phaseEndsAt = Date().addingTimeInterval(TimeInterval(minutes * 60))
         settings.isEnabled = false // breaks look like breaks
@@ -154,7 +182,7 @@ final class FocusScheduler: ObservableObject {
     }
 
     private func tick() {
-        if phase != .idle {
+        if phase != .idle, !isPaused {
             heartbeat += 1
             if let ends = phaseEndsAt, Date() >= ends {
                 advance()

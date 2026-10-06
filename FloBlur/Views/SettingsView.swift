@@ -650,6 +650,7 @@ private struct TimingPane: View {
                         Button("Start") { scheduler.startSession() }
                     } else {
                         HStack {
+                            Button(scheduler.isPaused ? "Resume" : "Pause") { scheduler.togglePause() }
                             Button("Skip") { scheduler.skipPhase() }
                             Button("Stop") { scheduler.stopSession() }
                         }
@@ -686,7 +687,7 @@ private struct TimingPane: View {
                     .padding(.vertical, 8)
             }
             SectionTitle(text: "Shortcuts")
-            Text("Sessions can also be driven from Shortcuts, or with Open URL floblur://pomodoro/start, floblur://pomodoro/skip and floblur://pomodoro/stop.")
+            Text("Sessions can also be driven from Shortcuts, or with Open URL floblur://pomodoro/start, floblur://pomodoro/pause, floblur://pomodoro/resume, floblur://pomodoro/skip and floblur://pomodoro/stop.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .padding(12)

@@ -268,6 +268,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             case "start": scheduler.startSession()
             case "skip": scheduler.skipPhase()
             case "stop": scheduler.stopSession()
+            case "pause": scheduler.pauseSession()
+            case "resume": scheduler.resumeSession()
             default: break
             }
         default:

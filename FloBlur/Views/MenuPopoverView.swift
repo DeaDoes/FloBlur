@@ -220,6 +220,8 @@ struct MenuPopoverView: View {
             }
             .buttonStyle(PopoverRowButton(isOn: false))
             if scheduler.phase != .idle {
+                Button(scheduler.isPaused ? "Resume" : "Pause") { scheduler.togglePause() }
+                    .buttonStyle(.link)
                 Button("Skip") { scheduler.skipPhase() }
                     .buttonStyle(.link)
             }
