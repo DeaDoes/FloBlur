@@ -122,7 +122,10 @@ final class OverlayWindow: NSWindow {
         // holes can never drift onto a neighboring window.
         mask.frame = layer.bounds
         mask.bounds = layer.bounds
-        if let screenScale = NSScreen.main?.backingScaleFactor {
+        // This overlay's own screen scale — never main's. Mixed
+        // Retina/non-Retina setups would otherwise get soft holes
+        // drifting a pixel off on the secondary display.
+        if let screenScale = screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor {
             mask.contentsScale = screenScale
         }
         mask.path = path

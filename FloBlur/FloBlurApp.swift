@@ -28,6 +28,10 @@ private struct MenuBarLabel: View {
         HStack(spacing: 5) {
             Image(nsImage: MenuBarIcon.image)
             if scheduler.phase != .idle {
+                if scheduler.isPaused {
+                    Image(systemName: "pause.fill")
+                        .font(.system(size: 10, weight: .bold))
+                }
                 Text(clockString)
                     .monospacedDigit()
             }

@@ -22,6 +22,10 @@ final class OverlayController {
     private var lastAnchor: [String: Int] = [:]
     private var lastSeatTime = 0.0
     private var refreshQueued = false
+    /// Live Night Shift strength (0 off / 1 shifting), pushed by AppDelegate.
+    /// The warm wash follows it — it must NOT be warm just because the
+    /// toggle is on while Night Shift itself is off.
+    var nightShiftStrength = 0.0
 
     // Peek: hovering a faded window brings it back while the cursor rests.
     private var mouseMonitors: [Any] = []
@@ -436,7 +440,9 @@ final class OverlayController {
             return custom
         }
         var tint = settings.dimTint
-        if settings.warmWithNightShift {
+        // "Warm it up with Night Shift" follows the live strength: warm
+        // only while the display is actually shifting, back afterwards.
+        if settings.warmWithNightShift, nightShiftStrength > 0 {
             tint = .warm
         }
         switch tint {

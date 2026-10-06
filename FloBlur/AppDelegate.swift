@@ -48,7 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         syncShakeDetector()
         // Note: no explicit syncAllHotKeys() here — the $ sinks below fire
         // immediately on subscribe and cover the initial registration.
-        nightShift.onChange = { [weak self] _ in
+        nightShift.onChange = { [weak self] strength in
+            self?.overlay.nightShiftStrength = strength
             self?.overlay.requestApply()
         }
         nightShift.sync(enabled: settings.warmWithNightShift)
@@ -69,6 +70,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         settings.$presetHotKeys.sink { [weak self] _ in self?.syncAllHotKeys() }
             .store(in: &cancellables)
         settings.$customPresets.sink { [weak self] _ in self?.syncAllHotKeys() }
+            .store(in: &cancellables)
+        // Re-mapping an app's auto preset applies to the front app at once
+        // instead of waiting for the next app switch (sessions still win).
+        settings.$automaticPresetByBundleID
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.applyAutoPreset(snapshot: self.snapshotStore.snapshot, force: true)
+            }
             .store(in: &cancellables)
         // @Published publishers emit in willSet (before mutation commits).
         // Hop to RunLoop.main so the sink executes post-didSet and the HUD
@@ -126,13 +136,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     private var onboardingWindow: NSWindow?
 
-    /// First-launch guide.
+    /// First-launch guide. Content is rebuilt on every show so a reopened
+    /// guide always starts on page one instead of the stale last page.
     func showOnboarding() {
+        let view = OnboardingView()
+            .environmentObject(settings)
+        let hosting = NSHostingView(rootView: view)
+        hosting.frame = NSRect(x: 0, y: 0, width: 460, height: 380)
+        hosting.autoresizingMask = [.width, .height]
         if onboardingWindow == nil {
-            let view = OnboardingView()
-                .environmentObject(settings)
-            let hosting = NSHostingView(rootView: view)
-            hosting.frame = NSRect(x: 0, y: 0, width: 460, height: 380)
             let window = NSWindow(
                 contentRect: hosting.frame,
                 styleMask: [.titled, .closable],
@@ -140,11 +152,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 defer: false
             )
             window.title = "Welcome to FloBlur"
-            window.contentView = hosting
             window.center()
             window.isReleasedWhenClosed = false
             onboardingWindow = window
         }
+        onboardingWindow?.contentView = hosting
         NSApp.activate(ignoringOtherApps: true)
         onboardingWindow?.makeKeyAndOrderFront(nil)
     }
@@ -312,10 +324,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     }
 
     /// "Bring an assigned app to the front and its preset is applied instantly."
-    private func applyAutoPreset(snapshot: DesktopSnapshot) {
+    /// Never stomps an active pomodoro session — the session owns the look
+    /// while it runs (same rule as the working-hours schedule).
+    private func applyAutoPreset(snapshot: DesktopSnapshot, force: Bool = false) {
+        guard scheduler.phase == .idle else { return }
         guard let pid = snapshot.activePID,
               let bid = snapshot.activeBundleID,
-              pid != lastAutoPresetPID
+              force || pid != lastAutoPresetPID
         else { return }
         lastAutoPresetPID = pid
         guard let presetID = settings.automaticPresetByBundleID[bid],

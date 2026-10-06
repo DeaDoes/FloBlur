@@ -202,7 +202,7 @@ private struct GeneralPane: View {
                 .padding(.vertical, 8)
             }
             SectionTitle(text: "Shortcuts & Focus")
-            Text("Shortcuts can Open URL floblur://toggle, floblur://on, floblur://off, or floblur://preset/coding. Add a Focus Filter under System Settings → Focus → Work (or Study) so the effect turns on with that Focus.")
+            Text("Shortcuts can Open URL floblur://toggle, floblur://on, floblur://off, or floblur://preset/coding — e.g. from a Shortcuts automation tied to a Focus mode, so the effect follows Work (or Study).")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .padding(12)
@@ -252,15 +252,18 @@ private struct AppearancePane: View {
             SectionTitle(text: "Presets")
             Card {
                 HStack(spacing: 6) {
-                    ForEach(settings.allPresets.prefix(8)) { preset in
-                        PresetChip(
-                            name: preset.name,
-                            isActive: settings.activePresetID == preset.id
-                        ) {
-                            settings.applyPreset(preset)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(settings.allPresets) { preset in
+                                PresetChip(
+                                    name: preset.name,
+                                    isActive: settings.activePresetID == preset.id
+                                ) {
+                                    settings.applyPreset(preset)
+                                }
+                            }
                         }
                     }
-                    Spacer()
                     Button("Manage…") { showingPresetManager = true }
                         .buttonStyle(.link)
                 }
@@ -404,6 +407,18 @@ private struct BehaviourToggle: View {
 
 private struct PreviewCard: View {
     @EnvironmentObject private var settings: FloBlurSettings
+
+    private var showsBlur: Bool { settings.style == .blur || settings.style == .both }
+    private var showsDim: Bool { settings.style == .dim || settings.style == .both }
+
+    private var washColor: Color {
+        switch settings.dimTint {
+        case .neutral: return .black
+        case .warm: return Color(red: 0.13, green: 0.06, blue: 0.02)
+        case .custom: return Color(hexString: settings.dimTintCustom)
+        }
+    }
+
     var body: some View {
         ZStack {
             LinearGradient(
@@ -411,8 +426,8 @@ private struct PreviewCard: View {
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-            .blur(radius: CGFloat(settings.blurIntensity * 24))
-            .overlay(Color.black.opacity(settings.dimIntensity * 0.6))
+            .blur(radius: showsBlur ? CGFloat(settings.blurIntensity * 24) : 0)
+            .overlay(showsDim ? washColor.opacity(settings.dimIntensity * 0.6) : Color.clear)
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color(nsColor: .windowBackgroundColor))
                 .frame(width: 200, height: 120)
@@ -828,6 +843,9 @@ private struct AppTable: View {
                     .foregroundStyle(.secondary)
             }
         }
+        // Selection is per-tab: a row picked under one tab must not linger
+        // as a (non-)removable selection under another.
+        .onChange(of: tab) { _, _ in selection = nil }
     }
 
     private var bundleIDs: [String] {
