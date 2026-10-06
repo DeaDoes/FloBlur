@@ -1,0 +1,105 @@
+name: Bug report
+
+description: Something in FloBlur looks or behaves wrong
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing this. FloBlur is a window-layer app, so most bugs are
+        environment-specific — the details below genuinely speed up the fix.
+
+        **If the effect is entirely missing or the desktop looks solid black,
+        read this first:** two focus/defocus apps compositing on the same windows
+        will do that. Quit the other one and check whether the popover shows a
+        stacking warning.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you expected, and what happened instead.
+      placeholder: I expected the pinned Safari window to stay sharp, but the blur dimmed it too.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Numbered, starting from a fresh launch of FloBlur.
+      placeholder: |
+        1. Launch FloBlur, enable the effect
+        2. Open Safari and Safari window B
+        3. Click the mail icon in the popover
+        4. Safari loses the sharp hole
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: |
+        If blur is involved, paste the private-API diagnostic — it usually ends
+        the investigation immediately:
+        `swiftc -o /tmp/floblur_diag Tools/diagnose-apis.swift -framework AppKit && /tmp/floblur_diag`
+      render: shell
+
+  - type: input
+    id: version
+    attributes:
+      label: FloBlur version
+      placeholder: "1.0 (1)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: macOS version
+      multiple: true
+      options:
+        - 15.x Sequoia
+        - 15.x Sequoia (beta)
+        - 14.x Sonoma
+        - Other / older
+    validations:
+      required: true
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Mac model
+      description: Chip and display setup, e.g. "M2 Pro 14", "2x 27-inch 5K, one scaled".
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Anything else that composits windows or moves them around.
+      placeholder: |
+        - Tiling: yabai / Amethyst / Rectangle / none
+        - Stage Manager / Mission Control / Exposé in use
+        - Other focus or defocus apps running
+        - Screen sharing or recording active
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or recording
+      description: For a visual effect, this is most of the diagnosis.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: Only one copy of FloBlur is running (check `pgrep -fl FloBlur`)
+          required: false
+        - label: I rebuilt from a clean DerivedData and the problem persists
+          required: false

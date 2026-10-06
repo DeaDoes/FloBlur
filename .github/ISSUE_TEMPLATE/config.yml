@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/DeaDoes/FloBlur/security/advisories/new
+    about: Report privately via GitHub Security Advisories — please don't file a public issue for a security report.
+  - name: Contributing guide
+    url: https://github.com/DeaDoes/FloBlur/blob/main/CONTRIBUTING.md
+    about: How to build, style, and submit a change, plus the constraints around private APIs.
+  - name: Code of Conduct
+    url: https://github.com/DeaDoes/FloBlur/blob/main/CODE_OF_CONDUCT.md
+    about: The standards we hold ourselves to in this repository.

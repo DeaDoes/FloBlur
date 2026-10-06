@@ -1,0 +1,113 @@
+# FloBlur CI — build check.
+#
+# There is no unit-test target yet (the app is AppKit-window-driven and hard to
+# exercise headlessly), so CI guards the thing that breaks most often: does it
+# still build, in both configurations, on a clean machine?
+#
+# Deliberately NOT in here:
+#   - code signing / notarisation   -> that's release.yml, and it needs secrets
+#   - the DMG build                 -> needs a signing identity and a GUI session
+#   - lint tooling                  -> match the surrounding code instead
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ matrix.configuration }})
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Cache build products
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/FloBlur-*
+          key: floblur-${{ matrix.configuration }}-${{ hashFiles('FloBlur.xcodeproj/project.pbxproj', 'FloBlur.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            floblur-${{ matrix.configuration }}-
+
+      - name: Resolve SwiftPM dependencies
+        run: |
+          xcodebuild -project FloBlur.xcodeproj -scheme FloBlur \
+            -resolvePackageDependencies
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild -project FloBlur.xcodeproj -scheme FloBlur \
+            -configuration ${{ matrix.configuration }} \
+            -destination 'platform=macOS' \
+            build 2>&1 \
+            | tee /tmp/build-${{ matrix.configuration }}.log \
+            | grep -E 'error:|warning:.*FloBlur/|BUILD (SUCCEEDED|FAILED)' || true
+
+      - name: Verify build result
+        run: |
+          if ! grep -q 'BUILD SUCCEEDED' "/tmp/build-${{ matrix.configuration }}.log"; then
+            echo "::error::Build failed — see the log above"
+            exit 1
+          fi
+
+      - name: Verify the app bundle
+        run: |
+          APP="$(ls -d ~/Library/Developer/Xcode/DerivedData/FloBlur-*/Build/Products/${{ matrix.configuration }}/FloBlur.app | head -n 1)"
+          test -x "$APP/Contents/MacOS/FloBlur" || { echo "::error::No executable in $APP"; exit 1; }
+          echo "Built: $APP"
+          plutil -p "$APP/Contents/Info.plist" | grep -E 'CFBundleIdentifier|CFBundleShortVersionString|LSUIElement|CFBundleURLSchemes|SUFeedURL' || true
+          codesign -dv "$APP" 2>&1 | head -n 5 || true
+
+  standalone-tools:
+    name: Standalone tools compile
+    runs-on: macos-15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      # Tools/ is outside the app target, so nothing else would notice if it
+      # stopped compiling — and a broken diagnostic is the worst time to find
+      # out, since that is when people need it.
+      - name: Compile the private-API diagnostic
+        run: |
+          set -o pipefail
+          swiftc -o /tmp/floblur_diag Tools/diagnose-apis.swift -framework AppKit
+          /tmp/floblur_diag
+
+      - name: Compile the DMG background renderer
+        run: |
+          set -o pipefail
+          swiftc -o /tmp/render_dmg_bg Tools/render-dmg-background.swift -framework AppKit
+
+      - name: Syntax-check the release scripts
+        run: |
+          zsh -n Tools/build-dmg.sh
+          python3 -m py_compile Tools/update-appcast.py && echo "update-appcast.py OK"
