@@ -116,10 +116,13 @@ jobs:
           VER="${{ steps.version.outputs.ver }}"
           APP="$(ls -d ~/Library/Developer/Xcode/DerivedData/FloBlur-*/Build/Products/Release/FloBlur.app | head -n 1)"
           ditto -c -k --keepParent "$APP" "dist/FloBlur-$VER.zip"
-          SIG_OUT="$(echo "$SPARKLE_ED_KEY" | /tmp/sparkle-tools/bin/sign_update --ed-key-file - "dist/FloBlur-$VER.zip" -p)"
-          echo "EDSIGNATURE<<EOF" >> "$GITHUB_ENV"
-          echo "$SIG_OUT" | grep -o 'sparkle:edSignature="[^"]*"' | cut -d'"' -f2 >> "$GITHUB_ENV"
-          echo "EOF" >> "$GITHUB_ENV"
+          # NOTE: `sign_update -p` prints the BARE base64 signature (not the
+          # full `sparkle:edSignature="..."` attribute). Grepping for the
+          # attribute format yields empty and ships a feed Sparkle rejects —
+          # so capture bare output and fail loudly when empty.
+          EDSIGNATURE="$(echo "$SPARKLE_ED_KEY" | /tmp/sparkle-tools/bin/sign_update --ed-key-file - "dist/FloBlur-$VER.zip" -p | tr -d '[:space:]')"
+          [ -n "$EDSIGNATURE" ] || { echo "ERROR: empty EdDSA signature from sign_update"; exit 1; }
+          echo "EDSIGNATURE=$EDSIGNATURE" >> "$GITHUB_ENV"
           echo "ZIPLENGTH=$(stat -f%z "dist/FloBlur-$VER.zip")" >> "$GITHUB_ENV"
 
       - name: Publish GitHub Release

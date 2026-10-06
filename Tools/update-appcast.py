@@ -68,6 +68,11 @@ def item_tag(item):
 
 def main(argv):
     a = parse(argv)
+    # An unsigned enclosure is worse than no entry: Sparkle rejects the
+    # whole item and the failure is silent on the client. Fail loudly.
+    if not a.edsig.strip() or not a.length.strip():
+        print("ERROR: refusing to write unsigned enclosure (empty edsig/length)", file=sys.stderr)
+        return 1
     tree = load_or_skeleton(a.feed, a.repo)
     channel = tree.getroot().find("channel")
     if channel is None:
