@@ -37,11 +37,13 @@ final class FocusScheduler: ObservableObject {
     }
 
     var sessionLabel: String? {
+        let remaining = Int(timeRemaining.rounded(.up))
+        let clock = String(format: "%d:%02d", remaining / 60, remaining % 60)
         switch phase {
         case .idle: return nil
-        case .focus: return "Focusing · \(Int(timeRemaining / 60)) min left"
-        case .pauseBreak: return "On a break · \(Int(timeRemaining / 60)) min left"
-        case .longBreak: return "Long break · \(Int(timeRemaining / 60)) min left"
+        case .focus: return "Focusing · \(clock) left"
+        case .pauseBreak: return "On a break · \(clock) left"
+        case .longBreak: return "Long break · \(clock) left"
         }
     }
 
@@ -81,6 +83,7 @@ final class FocusScheduler: ObservableObject {
     func stopSession() {
         phase = .idle
         phaseEndsAt = nil
+        restoreScheduleState()
     }
 
     func skipPhase() {
@@ -128,6 +131,28 @@ final class FocusScheduler: ObservableObject {
 
     // MARK: - Schedule
 
+    /// Re-applies working-hours state after a session ends (the session
+    /// owned the switch while running — see tickSchedule guard).
+    private func restoreScheduleState() {
+        guard settings.scheduleEnabled else { return }
+        let now = Date()
+        let cal = Calendar.current
+        let weekday = cal.component(.weekday, from: now)
+        let minutes = cal.component(.hour, from: now) * 60 + cal.component(.minute, from: now)
+        let inHours: Bool
+        if settings.scheduleEndMinutes <= settings.scheduleStartMinutes {
+            inHours = settings.scheduleWeekdays.contains(weekday)
+                && (minutes >= settings.scheduleStartMinutes || minutes < settings.scheduleEndMinutes)
+        } else {
+            inHours = settings.scheduleWeekdays.contains(weekday)
+                && minutes >= settings.scheduleStartMinutes
+                && minutes < settings.scheduleEndMinutes
+        }
+        scheduleActive = inHours
+        // Keep the session's look — only the switch follows the schedule.
+        settings.isEnabled = inHours
+    }
+
     private func tick() {
         if phase != .idle {
             heartbeat += 1
@@ -161,6 +186,10 @@ final class FocusScheduler: ObservableObject {
         }
         guard inHours != scheduleActive else { return }
         scheduleActive = inHours
+        // An active pomodoro session owns the switch: schedule state still
+        // tracks for display, but must not stomp focus/break. The next tick
+        // after the session stops (phase == .idle) restores schedule state.
+        guard phase == .idle else { return }
         if inHours {
             if let id = settings.schedulePresetID, let preset = settings.preset(id: id) {
                 settings.applyPreset(preset)

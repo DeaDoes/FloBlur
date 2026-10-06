@@ -71,7 +71,7 @@ struct MenuPopoverView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
-                ForEach(FocusPreset.builtins) { preset in
+                ForEach(settings.allPresets) { preset in
                     Button(preset.name) {
                         settings.applyPreset(preset)
                         settings.isEnabled = true
@@ -204,20 +204,26 @@ struct MenuPopoverView: View {
     }
 
     private var sessionRow: some View {
-        Button {
-            if scheduler.phase == .idle {
-                scheduler.startSession()
-            } else {
-                scheduler.stopSession()
+        HStack {
+            Button {
+                if scheduler.phase == .idle {
+                    scheduler.startSession()
+                } else {
+                    scheduler.stopSession()
+                }
+            } label: {
+                if scheduler.phase == .idle {
+                    Label("Start a \(settings.pomodoroFocusMinutes)-minute session", systemImage: "timer")
+                } else {
+                    Label(scheduler.sessionLabel ?? "Stop session", systemImage: "stop.circle")
+                }
             }
-        } label: {
-            if scheduler.phase == .idle {
-                Label("Start a \(settings.pomodoroFocusMinutes)-minute session", systemImage: "timer")
-            } else {
-                Label(scheduler.sessionLabel ?? "Stop session", systemImage: "stop.circle")
+            .buttonStyle(PopoverRowButton(isOn: false))
+            if scheduler.phase != .idle {
+                Button("Skip") { scheduler.skipPhase() }
+                    .buttonStyle(.link)
             }
         }
-        .buttonStyle(PopoverRowButton(isOn: false))
     }
 
     private var updaterRow: some View {

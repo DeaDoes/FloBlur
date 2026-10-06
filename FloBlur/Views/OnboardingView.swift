@@ -24,6 +24,8 @@ struct OnboardingView: View {
                 }
                 Spacer()
                 if page < 4 {
+                    Button("Skip") { finishOnboarding() }
+                        .buttonStyle(.link)
                     Button(page == 0 ? "Continue" : "Next") { page += 1 }
                         .keyboardShortcut(.defaultAction)
                 }
@@ -31,6 +33,15 @@ struct OnboardingView: View {
         }
         .padding(28)
         .frame(width: 460, height: 380)
+    }
+
+    private func finishOnboarding() {
+        settings.completeOnboarding()
+        if let onboarding = NSApp.windows.first(where: { $0.title == "Welcome to FloBlur" }) {
+            onboarding.close()
+        } else {
+            NSApp.keyWindow?.close()
+        }
     }
 
     private var welcomePage: some View {
@@ -114,12 +125,7 @@ struct OnboardingView: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
             Button("Start focusing") {
-                settings.completeOnboarding()
-                if let onboarding = NSApp.windows.first(where: { $0.title == "Welcome to FloBlur" }) {
-                    onboarding.close()
-                } else {
-                    NSApp.keyWindow?.close()
-                }
+                finishOnboarding()
             }
             .keyboardShortcut(.defaultAction)
             .padding(.top, 4)

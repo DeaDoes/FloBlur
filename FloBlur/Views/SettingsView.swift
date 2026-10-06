@@ -46,13 +46,19 @@ struct SettingsView: View {
             .frame(minWidth: 170, idealWidth: 190, maxWidth: 220)
             Divider()
             ScrollView {
-                switch selection {
-                case .general: GeneralPane()
-                case .appearance: AppearancePane()
-                case .displays: DisplaysPane()
-                case .timing: TimingPane()
-                case .apps: AppsPane()
-                case .about: AboutPane()
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(selection.title)
+                        .font(.title2)
+                        .padding(.horizontal, 22)
+                        .padding(.top, 20)
+                    switch selection {
+                    case .general: GeneralPane()
+                    case .appearance: AppearancePane()
+                    case .displays: DisplaysPane()
+                    case .timing: TimingPane()
+                    case .apps: AppsPane()
+                    case .about: AboutPane()
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -437,6 +443,7 @@ private struct PreviewCard: View {
 
 private struct DisplaysPane: View {
     @EnvironmentObject private var settings: FloBlurSettings
+    @State private var screens = NSScreen.screens
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -450,7 +457,7 @@ private struct DisplaysPane: View {
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
             }
-            ForEach(NSScreen.screens, id: \.self) { screen in
+            ForEach(screens, id: \.self) { screen in
                 DisplayCard(screen: screen)
             }
             Text("Settings follow the monitor, not the port: unplugging one and plugging it back in keeps what you set for it.")
@@ -460,6 +467,9 @@ private struct DisplaysPane: View {
                 .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
         }
         .panePadding()
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
+            screens = NSScreen.screens
+        }
     }
 }
 
@@ -639,7 +649,10 @@ private struct TimingPane: View {
                     if scheduler.phase == .idle {
                         Button("Start") { scheduler.startSession() }
                     } else {
-                        Button("Stop") { scheduler.stopSession() }
+                        HStack {
+                            Button("Skip") { scheduler.skipPhase() }
+                            Button("Stop") { scheduler.stopSession() }
+                        }
                     }
                 }
                 .padding(.vertical, 8)
