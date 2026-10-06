@@ -13,20 +13,38 @@ struct SettingsView: View {
 
     enum Pane: Hashable {
         case general, appearance, displays, timing, apps, about
+
+        var title: String {
+            switch self {
+            case .general: return "General"
+            case .appearance: return "Appearance"
+            case .displays: return "Displays"
+            case .timing: return "Timing"
+            case .apps: return "Apps"
+            case .about: return "About"
+            }
+        }
     }
 
     var body: some View {
-        NavigationSplitView {
+        // Plain HStack, NOT NavigationSplitView, and NO toolbar modifiers
+        // at all. NavigationSplitView in a raw NSWindow owns toolbar
+        // integration asynchronously: it injects a floating toggle +
+        // blurred detail header after the window shows (fixed-then-back).
+        // A fixed sidebar + zero toolbar owners = nothing can re-add it.
+        HStack(spacing: 0) {
             List(selection: $selection) {
                 Label("General", systemImage: "gear").tag(Pane.general)
                 Label("Appearance", systemImage: "slider.horizontal.3").tag(Pane.appearance)
-                Label("Displays", systemImage: "display.2").tag(Pane.displays)
+                Label("Displays", systemImage: "display").tag(Pane.displays)
                 Label("Timing", systemImage: "timer").tag(Pane.timing)
                 Label("Apps", systemImage: "app.badge.checkmark").tag(Pane.apps)
                 Label("About", systemImage: "info.circle").tag(Pane.about)
             }
-            .navigationSplitViewColumnWidth(min: 170, ideal: 190)
-        } detail: {
+            .labelStyle(SettingsSidebarLabelStyle())
+            .listStyle(.sidebar)
+            .frame(minWidth: 170, idealWidth: 190, maxWidth: 220)
+            Divider()
             ScrollView {
                 switch selection {
                 case .general: GeneralPane()
@@ -39,7 +57,6 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .navigationTitle("FloBlur Settings")
         .frame(minWidth: 720, minHeight: 560)
         .environmentObject(settings)
         .environmentObject(store)
@@ -48,6 +65,18 @@ struct SettingsView: View {
 }
 
 // MARK: - Shared bits
+
+struct SettingsSidebarLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 8) {
+            configuration.icon
+                .font(.system(size: 14))
+                .foregroundStyle(.blue)
+                .frame(width: 20, height: 20, alignment: .center)
+            configuration.title
+        }
+    }
+}
 
 private struct Card<Content: View>: View {
     @ViewBuilder var content: Content
@@ -85,6 +114,7 @@ private struct SectionTitle: View {
 private extension View {
     func panePadding() -> some View {
         padding(.horizontal, 22)
+            .padding(.top, 20)
             .padding(.bottom, 22)
             .frame(maxWidth: .infinity, alignment: .leading)
     }

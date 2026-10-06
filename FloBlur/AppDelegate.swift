@@ -149,6 +149,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         onboardingWindow?.makeKeyAndOrderFront(nil)
     }
 
+    private var settingsWindow: NSWindow?
+
+    /// Opens the settings window brought to the front of all other windows.
+    func showSettings() {
+        if settingsWindow == nil {
+            let view = SettingsView()
+                .environmentObject(settings)
+                .environmentObject(snapshotStore)
+                .environmentObject(scheduler)
+            let hosting = NSHostingView(rootView: view)
+            hosting.frame = NSRect(x: 0, y: 0, width: 740, height: 580)
+            let window = NSWindow(
+                contentRect: hosting.frame,
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "FloBlur Settings"
+            window.titlebarSeparatorStyle = .automatic
+            window.titleVisibility = .visible
+            // Plain titled window: no toolbar object, no SwiftUI toolbar
+            // modifiers, no split controller. Every prior attempt kept one
+            // toolbar owner (AppKit manual or SwiftUI auto) and the other
+            // re-asserted asynchronously — fixed at show, strip back a
+            // moment later. Zero owners: nothing can re-inject a header.
+            window.minSize = NSSize(width: 720, height: 560)
+            hosting.autoresizingMask = [.width, .height]
+            window.contentView = hosting
+            window.center()
+            window.isReleasedWhenClosed = false
+            settingsWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow?.makeKeyAndOrderFront(nil)
+        settingsWindow?.orderFrontRegardless()
+    }
+
     // MARK: - Single instance
 
     /// The plist ban doesn't cover debugger launches, so enforce it here:
@@ -218,6 +255,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             settings.isEnabled = true
         case "off":
             settings.isEnabled = false
+        case "settings":
+            showSettings()
         case "preset" where parts.count > 1:
             let id = parts[1...].joined(separator: "/")
             if let preset = settings.preset(id: id) ?? settings.allPresets.first(where: { $0.name.lowercased() == id.lowercased() }) {

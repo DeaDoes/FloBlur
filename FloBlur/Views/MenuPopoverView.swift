@@ -9,7 +9,6 @@ struct MenuPopoverView: View {
     @EnvironmentObject private var store: SnapshotStore
     @EnvironmentObject private var scheduler: FocusScheduler
     @EnvironmentObject private var app: AppDelegate
-    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -163,18 +162,28 @@ struct MenuPopoverView: View {
     }
 
     private var appRows: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 10) {
             if let bid = frontAppBundleID {
                 Button {
                     toggleMembership(bid, in: \.excludedBundleIDs)
                 } label: {
-                    Label("Don't fade \(frontAppName)", systemImage: "eye.slash")
+                    Label {
+                        Text("Don't fade \(frontAppName)")
+                    } icon: {
+                        Image(systemName: "eye.slash")
+                            .font(.system(size: 12.5))
+                    }
                 }
                 .buttonStyle(PopoverRowButton(isOn: settings.excludedBundleIDs.contains(bid)))
                 Button {
                     toggleMembership(bid, in: \.alwaysSharpBundleIDs)
                 } label: {
-                    Label("Keep \(frontAppName) sharp", systemImage: "pin")
+                    Label {
+                        Text("Keep \(frontAppName) sharp")
+                    } icon: {
+                        Image(systemName: "pin")
+                            .font(.system(size: 13.5))
+                    }
                 }
                 .buttonStyle(PopoverRowButton(isOn: settings.alwaysSharpBundleIDs.contains(bid)))
             }
@@ -223,7 +232,7 @@ struct MenuPopoverView: View {
 
     private var settingsRow: some View {
         Button {
-            openSettings()
+            app.showSettings()
         } label: {
             Label("Settings", systemImage: "slider.horizontal.3")
         }
@@ -287,6 +296,17 @@ private struct PresetPillButton: ButtonStyle {
     }
 }
 
+struct MenuRowLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 9) {
+            configuration.icon
+                .font(.system(size: 13.5))
+                .frame(width: 18, height: 18, alignment: .center)
+            configuration.title
+        }
+    }
+}
+
 private struct PopoverRowButton: ButtonStyle {
     var isOn: Bool
     var tint: Color?
@@ -294,13 +314,15 @@ private struct PopoverRowButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack {
             configuration.label
-                .labelStyle(.titleAndIcon)
+                .labelStyle(MenuRowLabelStyle())
             Spacer()
             if isOn {
                 Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
         }
+        .frame(height: 22)
         .font(.body)
         .foregroundStyle(tint ?? .primary)
         .contentShape(Rectangle())

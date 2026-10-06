@@ -66,9 +66,17 @@ final class ToggleHUD {
 
         var body: some View {
             HStack(spacing: 10) {
-                Image(systemName: enabled ? "circle.dashed" : "circle")
-                    .font(.system(size: 28))
-                    .foregroundStyle(enabled ? .blue : .secondary)
+                if enabled {
+                    Image(nsImage: MenuBarIcon.hudImage)
+                        .renderingMode(.template)
+                        .foregroundStyle(.blue)
+                        .frame(width: 28, height: 28)
+                } else {
+                    Image(systemName: "circle")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(enabled ? "Focus on" : "Focus off")
                         .font(.headline)
@@ -87,4 +95,46 @@ final class ToggleHUD {
             )
         }
     }
+}
+
+// MARK: - MenuBarIcon
+
+/// Vector template image matching the FloBlur logo:
+/// outer 16-segment dashed circle, inner iris, and center pupil cutout.
+enum MenuBarIcon {
+    static func makeImage(size: CGFloat = 18) -> NSImage {
+        let img = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            let s = size / 18.0
+            let center = CGPoint(x: size / 2, y: size / 2)
+
+            // Outer dashed circle (16 segments, matching the logo)
+            ctx.saveGState()
+            let ringPath = CGMutablePath()
+            ringPath.addArc(center: center, radius: 7.2 * s, startAngle: 0, endAngle: .pi * 2, clockwise: false)
+            ctx.addPath(ringPath)
+            ctx.setLineDash(phase: 0, lengths: [1.8 * s, 1.0 * s])
+            ctx.setLineWidth(1.3 * s)
+            ctx.setStrokeColor(NSColor.black.cgColor)
+            ctx.strokePath()
+            ctx.restoreGState()
+
+            // Inner iris with cutout pupil
+            ctx.saveGState()
+            let rIris = 4.5 * s
+            let rPupil = 1.6 * s
+            ctx.addEllipse(in: CGRect(x: center.x - rIris, y: center.y - rIris, width: rIris * 2, height: rIris * 2))
+            ctx.addEllipse(in: CGRect(x: center.x - rPupil, y: center.y - rPupil, width: rPupil * 2, height: rPupil * 2))
+            ctx.setFillColor(NSColor.black.cgColor)
+            ctx.fillPath(using: .evenOdd)
+            ctx.restoreGState()
+
+            return true
+        }
+        img.isTemplate = true
+        return img
+    }
+
+    static let image: NSImage = makeImage(size: 18)
+    static let hudImage: NSImage = makeImage(size: 28)
 }
