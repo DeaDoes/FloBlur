@@ -230,7 +230,7 @@ final class ActiveWindowTracker {
                 rect: Self.cocoaRect(fromCGBounds: CGRect(x: x, y: y, width: w, height: h))
             ))
         }
-        snapshot.captured = Self.anyDisplayCaptured()
+        snapshot.captured = Self.anyDisplayCaptured() || Self.sharingUIDetected(in: list)
         return snapshot
     }
 
@@ -264,12 +264,73 @@ final class ActiveWindowTracker {
         return screens.contains { w >= $0.frame.width * 0.8 && h >= $0.frame.height * 0.8 }
     }
 
-    /// Sharing/mirroring detection via the display mirror set.
+    /// Sharing/mirroring detection via the display mirror set plus
+    /// on-screen sharing affordances.
+    ///
+    /// Background: `disableWhileSharing` used to check only
+    /// `CGDisplayIsInMirrorSet` (AirPlay mirroring). Zoom / Meet / Teams
+    /// screen share never mirrors, so the toggle was dead for the main
+    /// case and dimmed windows leaked to the stream. This expands the same
+    /// `snapshot.captured` signal — no new permissions (same window-list
+    /// metadata already fetched), same pause path in `OverlayController`.
+    /// Fail-safe direction is pause: a false positive hides the effect,
+    /// a false negative embarrasses the user on stream.
     private static func anyDisplayCaptured() -> Bool {
         var ids = [CGDirectDisplayID](repeating: 0, count: 16)
         var count: UInt32 = 0
         guard CGGetOnlineDisplayList(16, &ids, &count) == .success else { return false }
-        return ids.prefix(Int(count)).contains { CGDisplayIsInMirrorSet($0) != 0 }
+        return ids.prefix(Int(count)).contains {
+            CGDisplayIsInMirrorSet($0) != 0
+        }
+    }
+
+    /// Heuristic scan of the already-fetched window list for active
+    /// screen-share UI: Zoom sharing toolbar, Teams sharing bar, Chrome
+    /// "is sharing your screen", macOS Screen Sharing, etc.
+    ///
+    /// Two tiers to limit false positives (e.g. a doc titled "how to
+    /// stop sharing"): strong phrases match any owner; weaker phrases
+    /// require a meeting/browser/screenshare owner.
+    private static func sharingUIDetected(in list: [[String: Any]]) -> Bool {
+        for info in list {
+            let owner = (info[kCGWindowOwnerName as String] as? String ?? "").lowercased()
+            let name = (info[kCGWindowName as String] as? String ?? "").lowercased()
+            guard !name.isEmpty else { continue }
+            if name.contains("sharing your screen")
+                || name.contains("sharing this screen")
+                || name.contains("sharing toolbar")
+                || name.contains("stop sharing")
+                || name.contains("stop share")
+                || name.contains("you're sharing")
+                || name.contains("you are sharing")
+                || name.contains("is presenting your screen") {
+                return true
+            }
+            let sharingOwner = owner.contains("zoom")
+                || owner.contains("teams")
+                || owner.contains("webex")
+                || owner.contains("slack")
+                || owner.contains("discord")
+                || owner.contains("skype")
+                || owner.contains("chrome")
+                || owner.contains("safari")
+                || owner.contains("firefox")
+                || owner.contains("edge")
+                || owner.contains("brave")
+                || owner.contains("arc")
+                || owner.contains("opera")
+                || owner.contains("facetime")
+                || owner.contains("screen sharing")
+                || owner.contains("quicktime")
+                || owner.contains("meet")
+            if sharingOwner
+                && (name.contains("is sharing")
+                    || name.contains("is presenting")
+                    || name.contains("screen sharing")) {
+                return true
+            }
+        }
+        return false
     }
 
     /// CG window bounds use a top-left origin measured from the top of the
