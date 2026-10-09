@@ -43,7 +43,7 @@ jobs:
     runs-on: macos-15
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Manual runs check out the tag too, not the branch they were
           # launched from — same code as a tag push, every time.

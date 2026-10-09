@@ -35,7 +35,7 @@ jobs:
 
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
@@ -46,7 +46,7 @@ jobs:
           xcodebuild -version
 
       - name: Cache build products
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/Library/Developer/Xcode/DerivedData/FloBlur-*
           key: floblur-${{ matrix.configuration }}-${{ hashFiles('FloBlur.xcodeproj/project.pbxproj', 'FloBlur.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
@@ -88,7 +88,7 @@ jobs:
     runs-on: macos-15
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
