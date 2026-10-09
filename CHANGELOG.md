@@ -13,6 +13,18 @@ never ship.
 
 Nothing yet. Contributions land here — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [1.1] — 2026-10-09
+
+### Fixed
+
+- Auto-pause the overlay during Zoom / Meet / Teams screen share: sharing
+  detection now covers meeting-app share UI, not just AirPlay mirroring.
+  Same *Turn off while sharing or presenting* toggle, same pause path, no
+  new permissions. Full-screen apps and fullscreen video (YouTube,
+  streaming) keep auto-pausing as before.
+- Repaired the `v1.0` appcast item with a valid EdDSA signature (it shipped
+  empty, which Sparkle rejects).
+
 ## [1.0] — 2026
 
 First public release.
@@ -89,5 +101,6 @@ First public release.
   identity, library validation would otherwise reject the re-signed
   `Sparkle.framework` and the app would crash-loop at launch on other Macs.
 
-[Unreleased]: https://github.com/DeaDoes/FloBlur/compare/v1.0...HEAD
+[Unreleased]: https://github.com/DeaDoes/FloBlur/compare/v1.1...HEAD
+[1.1]: https://github.com/DeaDoes/FloBlur/compare/v1.0...v1.1
 [1.0]: https://github.com/DeaDoes/FloBlur/releases/tag/v1.0
