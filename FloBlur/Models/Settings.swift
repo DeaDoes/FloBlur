@@ -217,6 +217,26 @@ final class FloBlurSettings: ObservableObject {
         allPresets.first { $0.id == id }
     }
 
+    func deleteCustomPreset(id: String) {
+        guard customPresets.contains(where: { $0.id == id }),
+              !FocusPreset.builtins.contains(where: { $0.id == id }) else { return }
+        clearPresetReferences(to: [id])
+        customPresets.removeAll { $0.id == id }
+    }
+
+    private func clearPresetReferences(to ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        let appRules = automaticPresetByBundleID.filter { !ids.contains($0.value) }
+        if appRules.count != automaticPresetByBundleID.count { automaticPresetByBundleID = appRules }
+        let hotKeys = presetHotKeys.filter { !ids.contains($0.key) }
+        if hotKeys.count != presetHotKeys.count { presetHotKeys = hotKeys }
+        if let activePresetID, ids.contains(activePresetID) { self.activePresetID = nil }
+        if let schedulePresetID, ids.contains(schedulePresetID) { self.schedulePresetID = nil }
+        if let pomodoroPresetID, ids.contains(pomodoroPresetID) {
+            self.pomodoroPresetID = FocusPreset.deepFocus.id
+        }
+    }
+
     /// Blur radius for a display: 0 unless the style includes blur, else the
     /// (possibly per-display) intensity mapped to 0...80.
     func effectiveBlurRadius(forDisplay key: String) -> Int {
@@ -356,6 +376,12 @@ final class FloBlurSettings: ObservableObject {
         pomodoroRounds = defaults.integer(forKey: Keys.pomodoroRounds)
         pomodoroPresetID = defaults.string(forKey: Keys.pomodoroPresetID)
         pomodoroContinuesAutomatically = defaults.bool(forKey: Keys.pomodoroContinuesAutomatically)
+
+        // Repair references left behind by older versions of preset deletion.
+        var assigned = Set(automaticPresetByBundleID.values)
+        assigned.formUnion(presetHotKeys.keys)
+        assigned.formUnion([activePresetID, schedulePresetID, pomodoroPresetID].compactMap { $0 })
+        clearPresetReferences(to: assigned.subtracting(allPresets.map(\.id)))
     }
 
     private static func decode<T: Decodable>(_ type: T.Type, _ json: String?) -> T? {

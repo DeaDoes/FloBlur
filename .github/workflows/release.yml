@@ -35,6 +35,10 @@ on:
         description: "Existing tag to release (e.g. v1.0)"
         required: true
 
+concurrency:
+  group: floblur-release
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -42,41 +46,28 @@ jobs:
   release:
     runs-on: macos-15
     steps:
-      - name: Check out
-        uses: actions/checkout@v7
-        with:
-          # Manual runs check out the tag too, not the branch they were
-          # launched from — same code as a tag push, every time.
-          ref: ${{ inputs.tag || github.ref }}
-
       - name: Resolve tag
         id: version
+        env:
+          MANUAL_TAG: ${{ inputs.tag }}
         run: |
-          if [ -n "${{ inputs.tag }}" ]; then
-            RAW="${{ inputs.tag }}"
-          else
-            RAW="${GITHUB_REF_NAME}"
-          fi
-          # Tolerate "1.0" or "v1.0" input; canonical TAG always v-prefixed.
-          case "$RAW" in
-            v*) TAG="$RAW" ;;
-            *) TAG="v$RAW" ;;
-          esac
-          VER="${TAG#v}"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "ver=$VER" >> "$GITHUB_OUTPUT"
-          git fetch origin "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null || true
-          BUILD="$(xcodebuild -project FloBlur.xcodeproj -scheme FloBlur -configuration Release -showBuildSettings 2>/dev/null | grep -m1 CURRENT_PROJECT_VERSION | awk '{print $3}')"
-          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
-          PROJECT_VER=$(xcodebuild -project FloBlur.xcodeproj -scheme FloBlur -configuration Release -showBuildSettings 2>/dev/null | grep -m1 MARKETING_VERSION | awk '{print $3}')
-          echo "project marketing version: $PROJECT_VER"
-          if [ "$VER" != "$PROJECT_VER" ]; then
-            echo "ERROR: tag $TAG != MARKETING_VERSION $PROJECT_VER — bump the project first."
+          RAW="${MANUAL_TAG:-$GITHUB_REF_NAME}"
+          VER="${RAW#v}"
+          if [[ ! "$VER" =~ ^[0-9]+\.[0-9]+$ ]]; then
+            echo "ERROR: expected a release tag like v1.1" >&2
             exit 1
           fi
+          echo "tag=v$VER" >> "$GITHUB_OUTPUT"
+          echo "ver=$VER" >> "$GITHUB_OUTPUT"
+          echo "FLOBLUR_DERIVED_DATA_PATH=$RUNNER_TEMP/floblur-derived-data" >> "$GITHUB_ENV"
+
+      - name: Check out release tag
+        uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ steps.version.outputs.tag }}
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer || true
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 
       - name: Import signing certificate
         env:
@@ -97,10 +88,10 @@ jobs:
 
       - name: Install Sparkle tools
         run: |
-          curl -sL -o /tmp/sparkle.tar.xz https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz
-          mkdir -p /tmp/sparkle-tools
-          tar -xf /tmp/sparkle.tar.xz -C /tmp/sparkle-tools ./bin/
-          /tmp/sparkle-tools/bin/sign_update --help >/dev/null
+          curl -fsSL -o "$RUNNER_TEMP/sparkle.tar.xz" https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz
+          mkdir -p "$RUNNER_TEMP/sparkle-tools"
+          tar -xf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle-tools" ./bin/
+          "$RUNNER_TEMP/sparkle-tools/bin/sign_update" --help >/dev/null
 
       - name: Build signed DMG
         env:
@@ -109,67 +100,113 @@ jobs:
           chmod +x Tools/build-dmg.sh
           ./Tools/build-dmg.sh "${{ steps.version.outputs.ver }}"
 
-      - name: Build + sign Sparkle update archive
+      - name: Build Sparkle update archive
         env:
-          SPARKLE_ED_KEY: ${{ secrets.SPARKLE_ED_KEY }}
+          VER: ${{ steps.version.outputs.ver }}
         run: |
-          VER="${{ steps.version.outputs.ver }}"
-          APP="$(ls -d ~/Library/Developer/Xcode/DerivedData/FloBlur-*/Build/Products/Release/FloBlur.app | head -n 1)"
+          APP="$FLOBLUR_DERIVED_DATA_PATH/Build/Products/Release/FloBlur.app"
           ditto -c -k --keepParent "$APP" "dist/FloBlur-$VER.zip"
-          # NOTE: `sign_update -p` prints the BARE base64 signature (not the
-          # full `sparkle:edSignature="..."` attribute). Grepping for the
-          # attribute format yields empty and ships a feed Sparkle rejects —
-          # so capture bare output and fail loudly when empty.
-          EDSIGNATURE="$(echo "$SPARKLE_ED_KEY" | /tmp/sparkle-tools/bin/sign_update --ed-key-file - "dist/FloBlur-$VER.zip" -p | tr -d '[:space:]')"
-          [ -n "$EDSIGNATURE" ] || { echo "ERROR: empty EdDSA signature from sign_update"; exit 1; }
-          echo "EDSIGNATURE=$EDSIGNATURE" >> "$GITHUB_ENV"
-          echo "ZIPLENGTH=$(stat -f%z "dist/FloBlur-$VER.zip")" >> "$GITHUB_ENV"
 
-      - name: Publish GitHub Release
+      - name: Reject reused build numbers before publishing
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VER: ${{ steps.version.outputs.ver }}
+        run: |
+          APP_INFO="$FLOBLUR_DERIVED_DATA_PATH/Build/Products/Release/FloBlur.app/Contents/Info.plist"
+          BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_INFO")"
+          git fetch origin main
+          git show FETCH_HEAD:appcast.xml > "$RUNNER_TEMP/current-appcast.xml"
+          python3 Tools/update-appcast.py --check-build --feed "$RUNNER_TEMP/current-appcast.xml" \
+            --tag "$TAG" --short-version "$VER" --build "$BUILD"
+
+      - name: Verify the signed Sparkle archive before publication
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SPARKLE_ED_KEY: ${{ secrets.SPARKLE_ED_KEY }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VER: ${{ steps.version.outputs.ver }}
         run: |
-          TAG="${{ steps.version.outputs.tag }}"
-          VER="${{ steps.version.outputs.ver }}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG exists — uploading assets (clobber)."
-            gh release upload "$TAG" "dist/FloBlur-$VER.dmg" "dist/FloBlur-$VER.zip" --clobber
+          NAME="FloBlur-$VER.zip"
+          ZIP="$RUNNER_TEMP/verified-$NAME"
+          if ASSETS="$(gh release view "$TAG" --json assets --jq '.assets[].name')" &&
+             grep -Fqx -- "$NAME" <<< "$ASSETS"; then
+            gh release download "$TAG" --pattern "$NAME" --output "$ZIP"
           else
-            gh release create "$TAG" "dist/FloBlur-$VER.dmg" "dist/FloBlur-$VER.zip" \
-              --title "FloBlur $VER" \
-              --notes "Download FloBlur-$VER.dmg, drag into Applications, right-click > Open on first launch."
+            cp "dist/$NAME" "$ZIP"
           fi
+          unzip -p "$ZIP" FloBlur.app/Contents/Info.plist > "$RUNNER_TEMP/published-info.plist"
+          PUBLISHED_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$RUNNER_TEMP/published-info.plist")"
+          PUBLISHED_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$RUNNER_TEMP/published-info.plist")"
+          APP_INFO="$FLOBLUR_DERIVED_DATA_PATH/Build/Products/Release/FloBlur.app/Contents/Info.plist"
+          EXPECTED_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_INFO")"
+          if [[ "$PUBLISHED_VERSION" != "$VER" || "$PUBLISHED_BUILD" != "$EXPECTED_BUILD" ]]; then
+            echo "ERROR: published bundle $PUBLISHED_VERSION ($PUBLISHED_BUILD) does not match $VER ($EXPECTED_BUILD)" >&2
+            exit 1
+          fi
+          # Verify the signature with the same public key embedded in FloBlur.
+          EDSIGNATURE="$(printf '%s\n' "$SPARKLE_ED_KEY" | "$RUNNER_TEMP/sparkle-tools/bin/sign_update" --ed-key-file - "$ZIP" -p | tr -d '[:space:]')"
+          [ -n "$EDSIGNATURE" ] || { echo "ERROR: empty EdDSA signature from sign_update"; exit 1; }
+          swift Tools/verify-update.swift "$ZIP" "$EDSIGNATURE" "$APP_INFO"
+          echo "EDSIGNATURE=$EDSIGNATURE" >> "$GITHUB_ENV"
+          echo "ZIPLENGTH=$(stat -f%z "$ZIP")" >> "$GITHUB_ENV"
+          echo "PUBLISHED_BUILD=$PUBLISHED_BUILD" >> "$GITHUB_ENV"
+
+      - name: Publish release assets without replacing existing downloads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VER: ${{ steps.version.outputs.ver }}
+        run: |
+          DMG="FloBlur-$VER.dmg"
+          ZIP="FloBlur-$VER.zip"
+          if ASSETS="$(gh release view "$TAG" --json assets --jq '.assets[].name')"; then
+            for NAME in "$DMG" "$ZIP"; do
+              if ! grep -Fqx -- "$NAME" <<< "$ASSETS"; then
+                gh release upload "$TAG" "dist/$NAME"
+              fi
+            done
+          else
+            gh release create "$TAG" "dist/$DMG" "dist/$ZIP" --verify-tag \
+              --title "FloBlur $VER" \
+              --notes "Download $DMG and drag FloBlur into Applications."
+          fi
+
+      - name: Confirm the published archive matches the verified file
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VER: ${{ steps.version.outputs.ver }}
+        run: |
+          NAME="FloBlur-$VER.zip"
+          gh release download "$TAG" --pattern "$NAME" --output "$RUNNER_TEMP/published-$NAME"
+          cmp "$RUNNER_TEMP/verified-$NAME" "$RUNNER_TEMP/published-$NAME"
 
       - name: Update appcast and push back
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VER: ${{ steps.version.outputs.ver }}
         run: |
-          TAG="${{ steps.version.outputs.tag }}"
-          VER="${{ steps.version.outputs.ver }}"
-          python3 Tools/update-appcast.py --feed appcast.xml --tag "$TAG" \
-            --short-version "$VER" --build "${{ steps.version.outputs.build }}" \
-            --asset-url "https://github.com/${{ github.repository }}/releases/download/$TAG/FloBlur-$VER.zip" \
-            --length "$ZIPLENGTH" --edsig "$EDSIGNATURE"
+          cp Tools/update-appcast.py "$RUNNER_TEMP/update-appcast.py"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add appcast.xml
-          if git diff --cached --quiet; then
-            echo "appcast already current — nothing to push."
-            exit 0
-          fi
-          git commit -m "appcast: publish $TAG"
-          git log --oneline -2
-          # Main may have moved since the tag: rebase first, retry the push —
-          # a push that silently does nothing ships a stale feed, so verify.
-          git fetch origin main
-          git rebase origin/main || git rebase --abort
-          for i in 1 2 3; do
-            if git push origin HEAD:main; then
-              break
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git switch --detach FETCH_HEAD
+            python3 "$RUNNER_TEMP/update-appcast.py" --feed appcast.xml --tag "$TAG" \
+              --short-version "$VER" --build "$PUBLISHED_BUILD" \
+              --repo "$GITHUB_REPOSITORY" \
+              --asset-url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/FloBlur-$VER.zip" \
+              --length "$ZIPLENGTH" --edsig "$EDSIGNATURE"
+            git add appcast.xml
+            if git diff --cached --quiet; then
+              echo "appcast already current on main."
+              exit 0
             fi
-            echo "push attempt $i failed, retrying…"
-            sleep 10
+            git commit -m "appcast: publish $TAG"
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "appcast push attempt $attempt failed" >&2
           done
-          git ls-remote origin main | grep -q "$(git rev-parse HEAD)" \
-            && echo "appcast push VERIFIED on origin/main" \
-            || { echo "ERROR: appcast commit missing from origin/main"; exit 1; }
+          echo "ERROR: appcast update could not be pushed" >&2
+          exit 1

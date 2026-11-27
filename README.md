@@ -35,7 +35,7 @@ positions, never window contents.
 
 ## Install
 
-1. Grab **`FloBlur-1.0.dmg`** from [the latest release](https://github.com/DeaDoes/FloBlur/releases/latest).
+1. Grab **`FloBlur-1.2.dmg`** from [the latest release](https://github.com/DeaDoes/FloBlur/releases/latest).
 2. Open it, drag **FloBlur** into **Applications**.
 3. **Right-click → Open** on first launch (self-signed build — one approval, then never again).
 4. Flip the switch in the menu-bar popover. Done.

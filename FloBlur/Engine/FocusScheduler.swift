@@ -159,23 +159,30 @@ final class FocusScheduler: ObservableObject {
 
     // MARK: - Schedule
 
+    func isWithinWorkingHours(at date: Date, calendar: Calendar = .current) -> Bool {
+        let weekday = calendar.component(.weekday, from: date)
+        let minutes = calendar.component(.hour, from: date) * 60 + calendar.component(.minute, from: date)
+        let start = settings.scheduleStartMinutes
+        let end = settings.scheduleEndMinutes
+        let selectedDays = settings.scheduleWeekdays
+
+        // Equal times retain the full-day schedule for each selected day.
+        if start == end { return selectedDays.contains(weekday) }
+
+        if end < start, minutes < end {
+            // After midnight the shift still belongs to its starting day.
+            let previousWeekday = weekday == 1 ? 7 : weekday - 1
+            return selectedDays.contains(previousWeekday)
+        }
+
+        return selectedDays.contains(weekday) && minutes >= start && (end < start || minutes < end)
+    }
+
     /// Re-applies working-hours state after a session ends (the session
     /// owned the switch while running — see tickSchedule guard).
     private func restoreScheduleState() {
         guard settings.scheduleEnabled else { return }
-        let now = Date()
-        let cal = Calendar.current
-        let weekday = cal.component(.weekday, from: now)
-        let minutes = cal.component(.hour, from: now) * 60 + cal.component(.minute, from: now)
-        let inHours: Bool
-        if settings.scheduleEndMinutes <= settings.scheduleStartMinutes {
-            inHours = settings.scheduleWeekdays.contains(weekday)
-                && (minutes >= settings.scheduleStartMinutes || minutes < settings.scheduleEndMinutes)
-        } else {
-            inHours = settings.scheduleWeekdays.contains(weekday)
-                && minutes >= settings.scheduleStartMinutes
-                && minutes < settings.scheduleEndMinutes
-        }
+        let inHours = isWithinWorkingHours(at: Date())
         scheduleActive = inHours
         // Keep the session's look — only the switch follows the schedule.
         settings.isEnabled = inHours
@@ -198,20 +205,7 @@ final class FocusScheduler: ObservableObject {
             }
             return
         }
-        let now = Date()
-        let cal = Calendar.current
-        let weekday = cal.component(.weekday, from: now) // 1 = Sunday
-        let minutes = cal.component(.hour, from: now) * 60 + cal.component(.minute, from: now)
-        let inHours: Bool
-        if settings.scheduleEndMinutes <= settings.scheduleStartMinutes {
-            // Overnight window (e.g. 22:00 → 06:00).
-            inHours = settings.scheduleWeekdays.contains(weekday)
-                && (minutes >= settings.scheduleStartMinutes || minutes < settings.scheduleEndMinutes)
-        } else {
-            inHours = settings.scheduleWeekdays.contains(weekday)
-                && minutes >= settings.scheduleStartMinutes
-                && minutes < settings.scheduleEndMinutes
-        }
+        let inHours = isWithinWorkingHours(at: Date())
         guard inHours != scheduleActive else { return }
         scheduleActive = inHours
         // An active pomodoro session owns the switch: schedule state still

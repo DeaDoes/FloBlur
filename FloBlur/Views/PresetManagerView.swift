@@ -1,38 +1,32 @@
 import SwiftUI
-import Carbon
 
 private struct PresetHotKeyRow: View {
     @EnvironmentObject private var settings: FloBlurSettings
+    @EnvironmentObject private var app: AppDelegate
+    @State private var shortcutError: String?
     var preset: FocusPreset
 
-    @State private var keyCode = 11
-    @State private var modifiers: UInt = UInt(cmdKey) | UInt(optionKey)
-    @State private var arming = false
-
     var body: some View {
-        HStack {
-            Text(preset.name)
-            Spacer()
-            if let combo = settings.presetHotKeys[preset.id] {
-                Text(combo.displayString)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                Button("Clear") {
-                    settings.presetHotKeys[preset.id] = nil
+        VStack(alignment: .trailing, spacing: 4) {
+            HStack {
+                Text(preset.name)
+                Spacer()
+                ShortcutRecorderView(combo: settings.presetHotKeys[preset.id]) { combo in
+                    shortcutError = app.saveShortcut(combo, for: .preset(preset.id))
                 }
-                .buttonStyle(.link)
-            } else if arming {
-                ShortcutRecorderView(keyCode: $keyCode, modifiers: $modifiers)
-                    .frame(width: 140)
-                    .onChange(of: [keyCode, Int(modifiers)]) { _, _ in
-                        settings.presetHotKeys[preset.id] = HotKeyCombo(keyCode: keyCode, modifiers: modifiers)
-                        arming = false
-                        // Sentinel so re-recording the same combo later still commits.
-                        keyCode = -1
-                        modifiers = 0
+                .frame(width: 140)
+                if settings.presetHotKeys[preset.id] != nil {
+                    Button("Clear") {
+                        shortcutError = nil
+                        settings.presetHotKeys[preset.id] = nil
                     }
-            } else {
-                Button("Set…") { arming = true }
+                    .buttonStyle(.link)
+                }
+            }
+            if let warning = shortcutError ?? app.shortcutWarnings[.preset(preset.id)] {
+                Text(warning)
+                    .font(.caption)
+                    .foregroundStyle(.red)
             }
         }
     }
@@ -171,11 +165,7 @@ struct PresetManagerView: View {
 
     private func deleteSelected() {
         guard let selected = selectedPreset, !selected.isBuiltin else { return }
-        settings.customPresets.removeAll { $0.id == selected.id }
-        settings.presetHotKeys[selected.id] = nil
-        if settings.activePresetID == selected.id {
-            settings.activePresetID = nil
-        }
+        settings.deleteCustomPreset(id: selected.id)
         selection = nil
     }
 }

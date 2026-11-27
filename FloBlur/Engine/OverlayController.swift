@@ -4,7 +4,7 @@ import Combine
 /// Manages one `OverlayWindow` per display, mirroring the original's
 /// `OverlayManager`: the overlay is parked directly beneath the anchor
 /// window (the frontmost qualifying window) and sharp regions for the rest
-/// of the pinned set are cut as holes (flipped window-local coords).
+/// of the pinned set are cut as holes (window-local coordinates).
 /// Show/hide fade the window alpha; intensities ramp in place.
 final class OverlayController {
     private let settings: FloBlurSettings
@@ -16,11 +16,8 @@ final class OverlayController {
     private let ownPID = NSRunningApplication.current.processIdentifier
     /// Last seating decision, for change-only diagnostics.
     private var lastDecision = ""
-    /// Last anchor window number each overlay was seated below. Re-seating
-    /// to the same anchor is skipped (matches the original's `lastAnchor`),
-    /// except once a second (stale seatings self-heal).
+    /// Last requested anchor per display, invalidated against the live stack.
     private var lastAnchor: [String: Int] = [:]
-    private var lastSeatTime = 0.0
     private var refreshQueued = false
     /// Live Night Shift strength (0 off / 1 shifting), pushed by AppDelegate.
     /// The warm wash follows it — it must NOT be warm just because the
@@ -29,10 +26,8 @@ final class OverlayController {
 
     // Peek: hovering a faded window brings it back while the cursor rests.
     private var mouseMonitors: [Any] = []
-    private var hoverCandidate: Int? // window number
-    private var peekNumber: Int?
-    private var peekDeadline = Date.distantPast
-    private var peekPump: Timer?
+    private let peek = HoverPeek()
+    private var lastPointerWindow: Int?
 
     init(settings: FloBlurSettings) {
         self.settings = settings
@@ -43,11 +38,19 @@ final class OverlayController {
     func update(snapshot: DesktopSnapshot) -> PausedReason {
         // Our own Settings window in front: hold the current seating so the
         // effect stays put (and live) while it is adjusted.
-        if snapshot.activePID == ownPID {
-            self.snapshot = snapshot
-            return lastPaused
-        }
         self.snapshot = snapshot
+        // Click-through overlays are not desktop windows or hover targets.
+        let ownNumbers = Set(windows.values.map(\.windowNumber))
+        for (key, window) in windows {
+            guard let requested = lastAnchor[key] else { continue }
+            if !snapshot.overlayIsSeated(window.windowNumber, below: requested == -2 ? nil : requested,
+                                         on: window.frame, overlayNumbers: ownNumbers) {
+                lastAnchor[key] = nil
+            }
+        }
+        self.snapshot.windows.removeAll { ownNumbers.contains($0.number) }
+        let sharingPause = settings.disableWhileSharing && snapshot.captured
+        if snapshot.activePID == ownPID, !sharingPause, lastPaused != .sharing { return lastPaused }
         lastPaused = apply()
         return lastPaused
     }
@@ -86,10 +89,10 @@ final class OverlayController {
             return .none
         }
 
-        // Never treat our own overlay windows as desktop windows.
-        let ownNumbers = Set(windows.values.map { $0.windowNumber }.filter { $0 > 0 })
-        if !ownNumbers.isEmpty {
-            snapshot.windows.removeAll { ownNumbers.contains($0.number) }
+        if settings.disableWhileSharing, snapshot.captured {
+            decide("paused-sharing")
+            hideAll(animated: false)
+            return .sharing
         }
 
         // Mission Control / App Exposé (gesture or keyboard): with Blur or
@@ -98,6 +101,7 @@ final class OverlayController {
         // seating, holes, and the converged blur stay parked, so the return
         // is a single fade-in instead of a full rebuild.
         if snapshot.missionControl, settings.style != .dim {
+            peek.clear()
             decide("mc-sharp")
             for window in windows.values {
                 window.fadeAlpha(to: 0, duration: 0.15)
@@ -105,11 +109,6 @@ final class OverlayController {
             return .none
         }
 
-        if settings.disableWhileSharing, snapshot.captured {
-            decide("paused-sharing")
-            hideAll(animated: true)
-            return .sharing
-        }
         if let name = snapshot.activeName,
            let bid = snapshot.activeBundleID,
            settings.excludedBundleIDs.contains(bid) {
@@ -117,7 +116,7 @@ final class OverlayController {
             hideAll(animated: true)
             return .pausedForApp(name: name)
         }
-        if settings.disableInFullScreen, isFullScreenActive() {
+        if settings.disableInFullScreen, snapshot.activeWindowInFullScreenSpace {
             decide("paused-fullscreen")
             hideAll(animated: true)
             return .fullScreen
@@ -126,7 +125,7 @@ final class OverlayController {
         let reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
         let style: FocusStyle = reduceTransparency ? .dim : settings.style
 
-        let anchor = anchorWindow()
+        let anchor = snapshot.activeWindow
         if anchor == nil, !settings.fadeDesktopWhenUnfocused {
             // No qualifying front window and the desktop should stay sharp:
             // stand down instead of full-covering (which blurred everything,
@@ -135,7 +134,21 @@ final class OverlayController {
             hideAll(animated: true)
             return .none
         }
-        let pinned = pinnedWindows(anchor: anchor)
+        var pinned = pinnedWindows(anchor: anchor)
+        let hovered = snapshot.window(at: NSEvent.mouseLocation)
+        lastPointerWindow = hovered?.number
+        let candidate = hovered.flatMap { window in
+            settings.peekEnabled && window.qualifiesForFocus && !pinned.contains(where: { $0.number == window.number })
+                ? window.number : nil
+        }
+        peek.track(candidate, delay: settings.peekDelay) { [weak self] in
+            self?.apply()
+        }
+        if let hovered, hovered.number == peek.revealedWindow {
+            pinned.append(hovered)
+        }
+
+        let sharpNumbers = Set(pinned.map(\.number))
         if let anchor {
             decide("seat-below-\(anchor.number)-holes-\(pinned.count)")
         } else {
@@ -156,29 +169,27 @@ final class OverlayController {
                 continue
             }
             let window = window(for: screen, key: key)
-            window.fadeIn(animated: true)
-            let now = CACurrentMediaTime()
-            if let anchor {
-                if lastAnchor[key] != anchor.number || now - lastSeatTime > 1.0 {
-                    lastAnchor[key] = anchor.number
-                    lastSeatTime = now
-                    window.order(.below, relativeTo: anchor.number)
-                }
-            } else {
-                if lastAnchor[key] != -2 || now - lastSeatTime > 1.0 {
-                    lastAnchor[key] = -2
-                    lastSeatTime = now
-                    window.orderFrontRegardless()
-                }
-            }
+            let holes = snapshot.overlayCutouts(sharpWindows: sharpNumbers, anchor: anchor,
+                                                workArea: screen.visibleFrame)
             let radius = style == .blur || style == .both
                 ? settings.effectiveBlurRadius(forDisplay: key) : 0
+            window.setHoles(holes, in: screen.frame)
             window.setBlur(radius: radius, animated: true)
             window.setDim(color: dimColor(for: key), animated: true)
             let opacity: Float = style == .dim || style == .both
                 ? Float(settings.effectiveDimOpacity(forDisplay: key)) : 0
             window.setDim(opacity: opacity, animated: true)
-            window.setHoles(localHoles(pinned.filter { $0.number != anchor?.number }, on: window))
+            let requested = anchor?.number ?? -2
+            if !window.isVisible || lastAnchor[key] != requested {
+                if let anchor {
+                    window.order(.below, relativeTo: anchor.number)
+                } else {
+                    window.orderFrontRegardless()
+                }
+                lastAnchor[key] = requested
+            }
+            window.fadeIn(animated: true)
+
         }
         return .none
     }
@@ -205,16 +216,8 @@ final class OverlayController {
 
     // MARK: - Anchor + pinned set
 
-    /// The anchor: first frontmost-app window at least 120×80, like the original.
-    private func anchorWindow() -> WindowInfo? {
-        guard let activePID = snapshot.activePID else { return nil }
-        return snapshot.windows.first {
-            $0.pid == activePID && $0.rect.width >= 120 && $0.rect.height >= 80
-        }
-    }
-
     /// Windows that stay sharp: the anchor's siblings (unless faded too),
-    /// tiled neighbors, always-sharp apps, and the peek window.
+    /// tiled neighbors, and always-sharp apps. Peek is added after hit testing.
     private func pinnedWindows(anchor: WindowInfo?) -> [WindowInfo] {
         guard let activePID = snapshot.activePID else {
             // Bare desktop: only fade when asked to; always-sharp apps and
@@ -228,7 +231,7 @@ final class OverlayController {
             if !settings.fadeDesktopWhenUnfocused { return [] }
             return sharpExtras(excluding: activePID)
         }
-        let mine = snapshot.windows.filter { $0.pid == activePID }
+        let mine = snapshot.windows.filter { $0.pid == activePID && $0.qualifiesForFocus }
         var pinned = mine
         if settings.fadeOtherWindowsOfSameApp {
             pinned = mine.first.map { [$0] } ?? []
@@ -237,11 +240,6 @@ final class OverlayController {
             pinned += tiledNeighbors(of: front, in: snapshot.windows)
         }
         pinned += sharpExtras(excluding: activePID)
-        if let peek = peekNumber,
-           let w = snapshot.windows.first(where: { $0.number == peek }),
-           !pinned.contains(where: { $0.number == peek }) {
-            pinned.append(w)
-        }
         return pinned
     }
 
@@ -262,41 +260,13 @@ final class OverlayController {
               let screenWidth = NSScreen.screens.first(where: { $0.frame.intersects(front.rect) })?.frame.width
         else { return [] }
         return windows.filter { w in
-            guard w.pid != front.pid else { return false }
+            guard w.qualifiesForFocus, w.pid != front.pid else { return false }
             let a = front.rect, b = w.rect
             let sameHeight = abs(a.height - b.height) < 4 && abs(a.minY - b.minY) < 4
             let adjacent = abs(a.minX - b.maxX) < 4 || abs(b.minX - a.maxX) < 4
             let fills = abs(a.width + b.width - screenWidth) < 12
             return sameHeight && adjacent && fills
         }
-    }
-
-    /// Global Cocoa rects → flipped window-local hole rects.
-    private func localHoles(_ globals: [WindowInfo], on window: NSWindow) -> [CGRect] {
-        let frame = window.frame
-        let height = frame.height
-        return globals.compactMap { w -> CGRect? in
-            guard w.rect.intersects(frame) else { return nil }
-            let local = CGRect(
-                x: w.rect.minX - frame.minX,
-                y: height - (w.rect.maxY - frame.minY),
-                width: w.rect.width,
-                height: w.rect.height
-            )
-            let clipped = local.intersection(CGRect(origin: .zero, size: frame.size))
-            return clipped.isEmpty ? nil : clipped
-        }
-    }
-
-    private func isFullScreenActive() -> Bool {
-        NSScreen.screens.contains { screen in
-            frontmostRectOn(screen).map { coversScreen($0, screen.frame) } ?? false
-        }
-    }
-
-    private func frontmostRectOn(_ screen: NSScreen) -> NSRect? {
-        guard let pid = snapshot.activePID else { return nil }
-        return snapshot.windows.first { $0.pid == pid && $0.rect.intersects(screen.frame) }?.rect
     }
 
     private func screenHoldsSharpWindow(_ screen: NSScreen, anchor: WindowInfo?, pinned: [WindowInfo]) -> Bool {
@@ -308,86 +278,29 @@ final class OverlayController {
 
     private func startMouseTracking() {
         stopMouseTracking()
+        let events: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
         mouseMonitors = [
-            NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { [weak self] _ in
+            NSEvent.addGlobalMonitorForEvents(matching: events) { [weak self] _ in self?.cursorMoved() },
+            NSEvent.addLocalMonitorForEvents(matching: events) { [weak self] event in
                 self?.cursorMoved()
+                return event
             },
         ].compactMap { $0 }
     }
 
     private func stopMouseTracking() {
-        for monitor in mouseMonitors {
-            NSEvent.removeMonitor(monitor)
-        }
-        mouseMonitors = []
-        peekNumber = nil
-        hoverCandidate = nil
-        stopPeekPump()
+        for monitor in mouseMonitors { NSEvent.removeMonitor(monitor) }
+        mouseMonitors.removeAll()
+        lastPointerWindow = nil
+        peek.clear()
     }
 
     private func cursorMoved() {
-        let point = NSEvent.mouseLocation
-        guard settings.peekEnabled, enabled else {
-            peekNumber = nil
-            hoverCandidate = nil
-            return
-        }
-        let anchor = anchorWindow()
-        let pinned = pinnedWindows(anchor: anchor)
-        if let peek = peekNumber,
-           let w = snapshot.windows.first(where: { $0.number == peek }),
-           w.rect.contains(point) {
-            return // stays back until the cursor leaves
-        }
-        peekNumber = nil
-        if pinned.contains(where: { $0.rect.insetBy(dx: -4, dy: -4).contains(point) }) {
-            hoverCandidate = nil
-            return
-        }
-        guard let hovered = snapshot.windows.first(where: { $0.rect.contains(point) }) else {
-            hoverCandidate = nil
-            return
-        }
-        if hoverCandidate != hovered.number {
-            hoverCandidate = hovered.number
-            peekDeadline = Date().addingTimeInterval(max(0.05, settings.peekDelay))
-            startPeekPump()
-        }
-    }
-
-    private func startPeekPump() {
-        stopPeekPump()
-        // Common modes: mouse drags run the loop in event-tracking mode,
-        // which would stall a default-mode timer and delay the reveal.
-        let pump = Timer(timeInterval: 1 / 30, repeats: true) { [weak self] _ in
-            self?.tickPeek()
-        }
-        RunLoop.main.add(pump, forMode: .common)
-        peekPump = pump
-    }
-
-    private func stopPeekPump() {
-        peekPump?.invalidate()
-        peekPump = nil
-    }
-
-    private func tickPeek() {
-        guard settings.peekEnabled, enabled,
-              peekNumber == nil,
-              hoverCandidate != nil,
-              Date() >= peekDeadline
-        else {
-            // Anything other than "still waiting out the delay" stops the
-            // pump — including peek being disabled mid-hover, which would
-            // otherwise spin it forever.
-            if !settings.peekEnabled || !enabled || peekNumber != nil || hoverCandidate == nil {
-                stopPeekPump()
-            }
-            return
-        }
-        peekNumber = hoverCandidate
-        stopPeekPump()
-        apply()
+        guard enabled, settings.peekEnabled else { return }
+        let underPointer = snapshot.window(at: NSEvent.mouseLocation)?.number
+        guard underPointer != lastPointerWindow else { return }
+        lastPointerWindow = underPointer
+        requestApply()
     }
 
     // MARK: - Window management
@@ -405,6 +318,7 @@ final class OverlayController {
     }
 
     private func hideAll(animated: Bool) {
+        peek.clear()
         for window in windows.values {
             window.setBlur(radius: 0, animated: animated)
             window.setDim(opacity: 0, animated: animated)
@@ -452,12 +366,7 @@ final class OverlayController {
         }
     }
 
-    private func coversScreen(_ rect: NSRect, _ frame: NSRect) -> Bool {
-        abs(rect.minX - frame.minX) < 3
-            && abs(rect.minY - frame.minY) < 3
-            && abs(rect.width - frame.width) < 3
-            && abs(rect.height - frame.height) < 3
-    }
+
 }
 
 extension CGDirectDisplayID {

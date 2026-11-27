@@ -130,6 +130,8 @@ private extension View {
 
 private struct GeneralPane: View {
     @EnvironmentObject private var settings: FloBlurSettings
+    @EnvironmentObject private var app: AppDelegate
+    @State private var shortcutError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -194,12 +196,18 @@ private struct GeneralPane: View {
                     Text("Combination")
                     Spacer()
                     ShortcutRecorderView(
-                        keyCode: $settings.shortcutKeyCode,
-                        modifiers: $settings.shortcutModifiers
-                    )
+                        combo: HotKeyCombo(keyCode: settings.shortcutKeyCode, modifiers: settings.shortcutModifiers)
+                    ) { combo in
+                        shortcutError = app.saveShortcut(combo, for: .toggle)
+                    }
                     .frame(width: 220)
                 }
                 .padding(.vertical, 8)
+            }
+            if let warning = shortcutError ?? app.shortcutWarnings[.toggle] {
+                Text(warning)
+                    .font(.caption)
+                    .foregroundStyle(.red)
             }
             SectionTitle(text: "Shortcuts & Focus")
             Text("Shortcuts can Open URL floblur://toggle, floblur://on, floblur://off, or floblur://preset/coding — e.g. from a Shortcuts automation tied to a Focus mode, so the effect follows Work (or Study).")
@@ -326,11 +334,11 @@ private struct AppearancePane: View {
                 Divider()
                 BehaviourToggle(title: "Turn off in full-screen apps", value: $settings.disableInFullScreen)
                 Divider()
-                BehaviourToggle(title: "Turn off while sharing or presenting", value: $settings.disableWhileSharing)
+                BehaviourToggle(title: "Pause during detected screen sharing", value: $settings.disableWhileSharing)
                 Divider()
                 BehaviourToggle(title: "Fade the desktop when no window is focused", value: $settings.fadeDesktopWhenUnfocused)
                 Divider()
-                Text("The menu bar and the Dock always stay sharp. Sharing also hides the overlay from most screen captures.")
+                Text("Auto-pause detects display mirroring and some sharing controls. Some meeting apps may require turning FloBlur off manually.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)

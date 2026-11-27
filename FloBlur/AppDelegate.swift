@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import Combine
 import SwiftUI
 import Sparkle
@@ -10,7 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     let snapshotStore = SnapshotStore()
     let overlay: OverlayController
     let tracker = ActiveWindowTracker()
-    let hotKey = HotKeyManager()
+    private let hotKey = HotKeyManager()
+    @Published private(set) var shortcutWarnings: [HotKeyAction: String] = [:]
     let scheduler: FocusScheduler
     let nightShift = NightShiftMonitor()
     let hud = ToggleHUD()
@@ -50,14 +52,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 self?.settings.isEnabled.toggle()
             }
         }
-        syncShakeDetector()
-        // Note: no explicit syncAllHotKeys() here — the $ sinks below fire
-        // immediately on subscribe and cover the initial registration.
         nightShift.onChange = { [weak self] strength in
             self?.overlay.nightShiftStrength = strength
             self?.overlay.requestApply()
         }
-        nightShift.sync(enabled: settings.warmWithNightShift)
 
         // Any setting change re-applies the effect immediately — no need to
         // switch apps first. objectWillChange fires before the mutation, and
@@ -66,16 +64,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             self?.overlay.requestApply()
             DispatchQueue.main.async { [weak self] in self?.refreshOverlay() }
         }.store(in: &cancellables)
-        settings.$shortcutEnabled.sink { [weak self] _ in self?.syncAllHotKeys() }
-            .store(in: &cancellables)
-        settings.$shortcutKeyCode.sink { [weak self] _ in self?.syncAllHotKeys() }
-            .store(in: &cancellables)
-        settings.$shortcutModifiers.sink { [weak self] _ in self?.syncAllHotKeys() }
-            .store(in: &cancellables)
-        settings.$presetHotKeys.sink { [weak self] _ in self?.syncAllHotKeys() }
-            .store(in: &cancellables)
-        settings.$customPresets.sink { [weak self] _ in self?.syncAllHotKeys() }
-            .store(in: &cancellables)
+        // The recorder writes the key code and modifiers separately.
+        // Register once after both writes and any preset edits have committed.
+        Publishers.MergeMany([
+            settings.$shortcutEnabled.map { _ in () }.eraseToAnyPublisher(),
+            settings.$shortcutKeyCode.map { _ in () }.eraseToAnyPublisher(),
+            settings.$shortcutModifiers.map { _ in () }.eraseToAnyPublisher(),
+            settings.$presetHotKeys.map { _ in () }.eraseToAnyPublisher(),
+            settings.$customPresets.map { _ in () }.eraseToAnyPublisher(),
+        ])
+        .debounce(for: .zero, scheduler: DispatchQueue.main)
+        .sink { [weak self] in self?.syncAllHotKeys() }
+        .store(in: &cancellables)
         // Re-mapping an app's auto preset applies to the front app at once
         // instead of waiting for the next app switch (sessions still win).
         settings.$automaticPresetByBundleID
@@ -97,7 +97,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 self.hud.flash(enabled: isEnabled, presetName: preset?.name)
             }
             .store(in: &cancellables)
-        settings.$shakeEnabled.sink { [weak self] _ in self?.syncShakeDetector() }
+        settings.$shakeEnabled
+            .removeDuplicates()
+            .sink { [weak self] enabled in self?.syncShakeDetector(enabled: enabled) }
             .store(in: &cancellables)
         // Sparkle mirrors our update prefs (initial + every change).
         settings.$checkUpdatesAutomatically
@@ -108,11 +110,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.syncUpdaterPrefs() }
             .store(in: &cancellables)
-        settings.$warmWithNightShift.sink { [weak self] _ in
-            guard let self else { return }
-            self.nightShift.sync(enabled: self.settings.warmWithNightShift)
-            self.overlay.requestApply()
-        }.store(in: &cancellables)
+        settings.$warmWithNightShift
+            .removeDuplicates()
+            .sink { [weak self] enabled in
+                self?.nightShift.sync(enabled: enabled)
+            }
+            .store(in: &cancellables)
 
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -176,6 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     func showSettings() {
         if settingsWindow == nil {
             let view = SettingsView()
+                .environmentObject(self)
                 .environmentObject(settings)
                 .environmentObject(snapshotStore)
                 .environmentObject(scheduler)
@@ -298,8 +302,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
     }
 
-    private func syncShakeDetector() {
-        if settings.shakeEnabled {
+    private func syncShakeDetector(enabled: Bool) {
+        if enabled {
             shakeDetector.start()
         } else {
             shakeDetector.stop()
@@ -315,26 +319,98 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         snapshotStore.paused = overlay.apply()
     }
 
-    /// Main toggle + one hotkey per preset ("pressing it applies this preset
-    /// and turns the effect on").
+    private var toggleShortcut: HotKeyCombo {
+        HotKeyCombo(keyCode: settings.shortcutKeyCode, modifiers: settings.shortcutModifiers)
+    }
+
+    private var presetShortcuts: [(HotKeyAction, HotKeyCombo)] {
+        settings.allPresets.compactMap { preset in
+            settings.presetHotKeys[preset.id].map { (.preset(preset.id), $0) }
+        }
+    }
+
+    func setShortcutRecordingHandler(_ handler: ((HotKeyCombo) -> Bool)?) {
+        hotKey.recordActiveShortcut = handler
+    }
+
+    func saveShortcut(_ combo: HotKeyCombo, for action: HotKeyAction) -> String? {
+        let assignments = [(.toggle, toggleShortcut)] + presetShortcuts
+        if let conflicting = assignments.first(where: { $0.0 != action && $0.1 == combo }) {
+            return duplicateShortcutMessage(combo, assignedTo: conflicting.0)
+        }
+
+        let enabled = action != .toggle || settings.shortcutEnabled
+        let status = hotKey.register(combo, for: action, fire: enabled ? shortcutHandler(for: action) : nil)
+        guard status == noErr else { return shortcutWarning(for: combo, action: action, status: status) }
+
+        shortcutWarnings[action] = nil
+        switch action {
+        case .toggle:
+            settings.shortcutKeyCode = combo.keyCode
+            settings.shortcutModifiers = combo.modifiers
+        case let .preset(id):
+            settings.presetHotKeys[id] = combo
+        }
+        return nil
+    }
+
     private func syncAllHotKeys() {
-        let main = HotKeyCombo(keyCode: settings.shortcutKeyCode, modifiers: settings.shortcutModifiers)
-        var presets: [(id: Int, combo: HotKeyCombo, fire: () -> Void)] = []
-        for (index, preset) in settings.allPresets.enumerated() {
-            guard let combo = settings.presetHotKeys[preset.id] else { continue }
-            presets.append((id: 1000 + index, combo: combo, fire: { [weak self] in
-                guard let self, let preset = self.settings.preset(id: preset.id) else { return }
+        var wanted = presetShortcuts
+        if settings.shortcutEnabled { wanted.insert((.toggle, toggleShortcut), at: 0) }
+        hotKey.removeActions(except: Set(wanted.map { $0.0 }))
+
+        var assigned: [HotKeyCombo: HotKeyAction] = [:]
+        var warnings: [HotKeyAction: String] = [:]
+        for (action, combo) in wanted {
+            if let existing = assigned[combo] {
+                warnings[action] = duplicateShortcutMessage(combo, assignedTo: existing)
+                continue
+            }
+            let status = hotKey.register(combo, for: action, fire: shortcutHandler(for: action))
+            if status == noErr {
+                assigned[combo] = action
+            } else if let existing = hotKey.actionUsing(combo) {
+                warnings[action] = duplicateShortcutMessage(combo, assignedTo: existing)
+            } else {
+                warnings[action] = shortcutWarning(for: combo, action: action, status: status)
+            }
+        }
+        if shortcutWarnings != warnings { shortcutWarnings = warnings }
+    }
+
+    private func shortcutHandler(for action: HotKeyAction) -> () -> Void {
+        { [weak self] in
+            guard let self else { return }
+            switch action {
+            case .toggle:
+                self.settings.isEnabled.toggle()
+            case let .preset(id):
+                guard let preset = self.settings.preset(id: id) else { return }
                 self.settings.applyPreset(preset)
                 self.settings.isEnabled = true
-            }))
-        }
-        hotKey.sync(
-            main: settings.shortcutEnabled ? (main, true) : nil,
-            presets: presets,
-            mainFire: { [weak self] in
-                self?.settings.isEnabled.toggle()
             }
-        )
+        }
+    }
+
+    private func duplicateShortcutMessage(_ combo: HotKeyCombo, assignedTo action: HotKeyAction) -> String {
+        let name: String
+        switch action {
+        case .toggle:
+            name = "FloBlur’s toggle"
+        case let .preset(id):
+            name = "the \(settings.preset(id: id)?.name ?? id) preset"
+        }
+        return "\(combo.displayString) is already assigned to \(name)."
+    }
+
+    private func shortcutWarning(for combo: HotKeyCombo, action: HotKeyAction, status: OSStatus) -> String {
+        let message = status == eventHotKeyExistsErr
+            ? "\(combo.displayString) is already in use."
+            : "\(combo.displayString) is unavailable."
+        if let previous = hotKey.activeCombo(for: action), previous != combo {
+            return "\(message) \(previous.displayString) still works."
+        }
+        return "\(message) Try a different shortcut."
     }
 
     /// "Bring an assigned app to the front and its preset is applied instantly."

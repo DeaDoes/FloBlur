@@ -29,15 +29,26 @@ struct HotKeyCombo: Codable, Equatable, Hashable {
     }
 }
 
-/// Global keyboard shortcuts (default ⌥⌘B) via Carbon hotkeys — no
-/// Accessibility permission needed. Supports the main toggle plus one
-/// hotkey per preset; duplicate combos resolve first-wins.
-final class HotKeyManager {
-    private var refs: [Int: EventHotKeyRef] = [:]
-    private var handlerRef: EventHandlerRef?
-    private var fires: [Int: () -> Void] = [:]
+enum HotKeyAction: Hashable {
+    case toggle
+    case preset(String)
+}
 
-    private static var sharedFires: [Int: () -> Void] = [:]
+/// Owns Carbon registrations. A replacement is registered before the old
+/// binding is released so a conflict leaves the working hotkey in place.
+final class HotKeyManager {
+    private struct Registration {
+        let combo: HotKeyCombo
+        let id: UInt32
+        let ref: EventHotKeyRef
+    }
+
+    private static let signature: OSType = 0x464C4252
+    private var registrations: [HotKeyAction: Registration] = [:]
+    private var fires: [UInt32: () -> Void] = [:]
+    private var nextID: UInt32 = 0
+    private var handlerRef: EventHandlerRef?
+    var recordActiveShortcut: ((HotKeyCombo) -> Bool)?
 
     init() {
         var spec = EventTypeSpec(
@@ -46,85 +57,89 @@ final class HotKeyManager {
         )
         InstallEventHandler(
             GetApplicationEventTarget(),
-            { _, event, _ in
+            { _, event, context in
                 var hotID = EventHotKeyID()
-                GetEventParameter(
-                    event,
-                    EventParamName(kEventParamDirectObject),
-                    EventParamType(typeEventHotKeyID),
-                    nil,
-                    MemoryLayout<EventHotKeyID>.size,
-                    nil,
-                    &hotID
-                )
-                // Carbon handlers run off the main thread: hop over before
-                // touching settings/UI, or @Published updates tear.
-                if let fire = HotKeyManager.sharedFires[Int(hotID.id)] {
-                    DispatchQueue.main.async(execute: fire)
+                guard let context,
+                      GetEventParameter(event, EventParamName(kEventParamDirectObject),
+                                        EventParamType(typeEventHotKeyID), nil,
+                                        MemoryLayout<EventHotKeyID>.size, nil, &hotID) == noErr,
+                      hotID.signature == HotKeyManager.signature else { return OSStatus(eventNotHandledErr) }
+                let manager = Unmanaged<HotKeyManager>.fromOpaque(context).takeUnretainedValue()
+                let id = hotID.id
+                DispatchQueue.main.async { [weak manager] in
+                    guard let manager else { return }
+                    if let record = manager.recordActiveShortcut,
+                       let combo = manager.registrations.values.first(where: { $0.id == id })?.combo,
+                       record(combo) { return }
+                    manager.fires[id]?()
                 }
                 return noErr
             },
             1,
             &spec,
-            nil,
+            Unmanaged.passUnretained(self).toOpaque(),
             &handlerRef
         )
     }
 
     deinit {
-        for ref in refs.values {
-            UnregisterEventHotKey(ref)
+        for registration in registrations.values {
+            UnregisterEventHotKey(registration.ref)
         }
-        if let handlerRef {
-            RemoveEventHandler(handlerRef)
+        if let handlerRef { RemoveEventHandler(handlerRef) }
+    }
+
+    func activeCombo(for action: HotKeyAction) -> HotKeyCombo? {
+        guard let registration = registrations[action] else { return nil }
+        return registration.combo
+    }
+
+    func actionUsing(_ combo: HotKeyCombo) -> HotKeyAction? {
+        registrations.first { $0.value.combo == combo }?.key
+    }
+
+    func removeActions(except wanted: Set<HotKeyAction>) {
+        for action in registrations.keys where !wanted.contains(action) {
+            remove(action)
         }
     }
 
-    /// Reconciles registrations: id 1 is the main toggle, 1000+i are presets.
-    func sync(main: (combo: HotKeyCombo, enabled: Bool)?, presets: [(id: Int, combo: HotKeyCombo, fire: () -> Void)], mainFire: @escaping () -> Void) {
-        var wanted: [Int: (HotKeyCombo, () -> Void)] = [:]
-        var seenCombos = Set<HotKeyCombo>()
-        if let main, main.enabled {
-            wanted[1] = (main.combo, mainFire)
-            seenCombos.insert(main.combo)
+    /// Returns macOS's registration result. Pass nil for an availability
+    /// check of a disabled shortcut. That check releases its temporary claim.
+    func register(_ combo: HotKeyCombo, for action: HotKeyAction, fire: (() -> Void)?) -> OSStatus {
+        if let existing = registrations[action], existing.combo == combo {
+            if let fire { fires[existing.id] = fire }
+            return noErr
         }
-        for preset in presets {
-            guard !seenCombos.contains(preset.combo) else { continue } // first wins
-            seenCombos.insert(preset.combo)
-            wanted[preset.id] = (preset.combo, preset.fire)
+        if let existingAction = actionUsing(combo), existingAction != action {
+            return OSStatus(eventHotKeyExistsErr)
         }
-        for id in refs.keys where wanted[id] == nil {
-            if let ref = refs[id] {
-                UnregisterEventHotKey(ref)
-            }
-            refs[id] = nil
-            fires[id] = nil
+        guard handlerRef != nil, let key = UInt32(exactly: combo.keyCode),
+              let modifiers = UInt32(exactly: combo.modifiers), modifiers != 0 else { return OSStatus(paramErr) }
+
+        repeat { nextID &+= 1 } while fires[nextID] != nil
+        var ref: EventHotKeyRef?
+        let status = RegisterEventHotKey(
+            key, modifiers, EventHotKeyID(signature: Self.signature, id: nextID),
+            GetApplicationEventTarget(), OptionBits(kEventHotKeyExclusive), &ref
+        )
+        guard status == noErr else { return status }
+        guard let ref else { return OSStatus(paramErr) }
+        if let fire {
+            remove(action)
+            registrations[action] = Registration(combo: combo, id: nextID, ref: ref)
+            fires[nextID] = fire
+        } else {
+            UnregisterEventHotKey(ref)
         }
-        for (id, entry) in wanted {
-            // Re-register when the combo changed (or is new).
-            unregister(id: id)
-            var ref: EventHotKeyRef?
-            let status = RegisterEventHotKey(
-                UInt32(entry.0.keyCode),
-                UInt32(entry.0.modifiers),
-                EventHotKeyID(signature: OSType(0x464C4252), id: UInt32(id)),
-                GetApplicationEventTarget(),
-                0,
-                &ref
-            )
-            guard status == noErr, let ref else { continue }
-            refs[id] = ref
-            fires[id] = entry.1
-        }
-        Self.sharedFires = fires
+        return noErr
     }
 
-    private func unregister(id: Int) {
-        if let ref = refs[id] {
-            UnregisterEventHotKey(ref)
-            refs[id] = nil
+    private func remove(_ action: HotKeyAction) {
+        if let registration = registrations.removeValue(forKey: action) {
+            UnregisterEventHotKey(registration.ref)
+            fires[registration.id] = nil
         }
-        fires[id] = nil
     }
 }
 

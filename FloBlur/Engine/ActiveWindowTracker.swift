@@ -8,18 +8,18 @@ import AppKit
 /// interval follows `min(time since last resolve, time since last input)` —
 /// 0.1s when fresh, 2s while settling, 6s when idle (20% timer tolerance).
 /// App switches, window closes, wakeups, and Space changes refresh
-/// immediately via workspace notifications. Only announcement-worthy layouts
-/// propagate to the overlay; background flicker is cached silently.
+/// immediately via workspace notifications. Window order and geometry for the whole stack
+/// determine which portions of pinned windows are visible.
 final class ActiveWindowTracker {
     var onSnapshot: ((DesktopSnapshot) -> Void)?
 
     private var timer: Timer?
-    private var mcTimer: Timer?
+    private var stackTimer: Timer?
+    private var lastWindowOrder: [Int] = []
     private var lastMC = false
     private var pollInterval = -1.0
     private var lastFullResolve = 0.0
     private var lastSnapshot = DesktopSnapshot.empty
-    private var lastEmittedKey = LayoutKey.empty
     private var bundleIDCache: [pid_t: String] = [:]
     private var observers: [NSObjectProtocol] = []
     private let workspace = NSWorkspace.shared
@@ -42,24 +42,21 @@ final class ActiveWindowTracker {
                 if name == NSWorkspace.didTerminateApplicationNotification {
                     self?.forgetBundleID(from: notification)
                 }
-                self?.refresh(force: name == NSWorkspace.didActivateApplicationNotification)
+                self?.refresh(force: name == NSWorkspace.didActivateApplicationNotification ||
+                                         name == NSWorkspace.activeSpaceDidChangeNotification)
             })
         }
         updateCadence()
         refresh(force: true)
-        // Mission Control posts no workspace notification, so a dedicated
-        // fast watcher owns enter/exit latency (~10Hz cheap Dock scan).
-        // The main poll can sit in its 6s idle band otherwise.
+        // Space transitions and WindowServer restacking can happen while the
+        // main poll is idle. Share the fast Mission Control scan with both.
+        lastWindowOrder = []
         lastMC = false
-        mcTimer?.invalidate()
-        // Common modes: a default-mode timer freezes for the whole gesture
-        // (event-tracking mode), which is exactly the ~1s dead wait on
-        // Mission Control exit. Common modes keep firing mid-gesture.
-        let mc = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
-            self?.checkMissionControl()
+        let watcher = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.checkWindowStack()
         }
-        RunLoop.main.add(mc, forMode: .common)
-        mcTimer = mc
+        RunLoop.main.add(watcher, forMode: .common)
+        stackTimer = watcher
     }
 
     deinit {
@@ -69,8 +66,8 @@ final class ActiveWindowTracker {
     func stop() {
         timer?.invalidate()
         timer = nil
-        mcTimer?.invalidate()
-        mcTimer = nil
+        stackTimer?.invalidate()
+        stackTimer = nil
         pollInterval = -1
         for observer in observers {
             workspace.notificationCenter.removeObserver(observer)
@@ -80,8 +77,7 @@ final class ActiveWindowTracker {
 
     /// External nudge (e.g. overlay needs fresh geometry now).
     func refresh(force: Bool) {
-        _ = force
-        poll()
+        poll(force: force)
         updateCadence()
     }
 
@@ -109,15 +105,10 @@ final class ActiveWindowTracker {
     }
 
     private func tick() {
-        poll()
-        // Heartbeat: re-emit at most every second even when the layout key
-        // is unchanged, so a stale seating can never stick — the overlay
-        // re-asserts its position and the flash self-heals.
-        if CACurrentMediaTime() - lastHeartbeat > 1.0 {
-            lastHeartbeat = CACurrentMediaTime()
-            lastEmittedKey = LayoutKey.empty
-            poll()
-        }
+        let now = CACurrentMediaTime()
+        let heartbeatDue = now - lastHeartbeat > 1
+        if heartbeatDue { lastHeartbeat = now }
+        poll(force: heartbeatDue)
         updateCadence()
     }
 
@@ -125,7 +116,7 @@ final class ActiveWindowTracker {
 
     private static func secondsSinceLastInput() -> Double {
         var best = Double.greatestFiniteMagnitude
-        for type: CGEventType in [.mouseMoved, .leftMouseDown, .rightMouseDown, .keyDown, .scrollWheel, .flagsChanged] {
+        for type: CGEventType in [.mouseMoved, .leftMouseDragged, .leftMouseDown, .rightMouseDown, .keyDown, .scrollWheel, .flagsChanged] {
             let seconds = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: type)
             if seconds < best {
                 best = seconds
@@ -136,23 +127,48 @@ final class ActiveWindowTracker {
 
     // MARK: - Snapshot
 
-    /// Fast Mission Control flip detector. Runs the cheap Dock-only scan;
-    /// on change, forces a full snapshot + overlay apply immediately.
-    private func checkMissionControl() {
-        let mc = Self.isMissionControlActive()
-        guard mc != lastMC else { return }
-        lastMC = mc
-        poll()
+    private static func onScreenWindows() -> [[String: Any]]? {
+        CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
     }
 
-    private func poll() {
-        let snapshot = takeSnapshot(ownPID: NSRunningApplication.current.processIdentifier)
-        guard snapshot != lastSnapshot else { return }
-        lastSnapshot = snapshot
-        lastFullResolve = CACurrentMediaTime()
-        let key = LayoutKey(of: snapshot)
-        guard key != lastEmittedKey else { return }
-        lastEmittedKey = key
+    private func checkWindowStack() {
+        guard let list = Self.onScreenWindows() else { return }
+        let mc = list.contains(where: Self.isMissionControlWindow)
+        let captured = Self.sharingDetected(in: list)
+        var order: [Int] = []
+        var activeFrame: CGRect?
+        for info in list {
+            guard Self.number(info[kCGWindowLayer as String]) == 0,
+                  let alpha = Self.number(info[kCGWindowAlpha as String]), alpha > 0,
+                  let number = info[kCGWindowNumber as String] as? Int else { continue }
+            order.append(number)
+            if activeFrame == nil, let pid = lastSnapshot.activePID,
+               Self.number(info[kCGWindowOwnerPID as String]) == CGFloat(pid),
+               let bounds = Self.windowBounds(info), bounds.width >= 120, bounds.height >= 80 {
+                activeFrame = Self.cocoaRect(fromCGBounds: bounds)
+            }
+        }
+        let previousFrame = lastSnapshot.activeWindow?.rect
+        let dragStarted = pollInterval > 0.1 &&
+            CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .leftMouseDragged) < 0.25
+        guard mc != lastMC || captured != lastSnapshot.captured || order != lastWindowOrder ||
+              activeFrame != previousFrame || dragStarted else { return }
+        lastMC = mc
+        lastWindowOrder = order
+        poll(list: list, captured: captured)
+        updateCadence()
+    }
+
+    private func poll(force: Bool = false, list: [[String: Any]]? = nil, captured: Bool? = nil) {
+        guard let list = list ?? Self.onScreenWindows() else { return }
+        var snapshot = takeSnapshot(ownPID: NSRunningApplication.current.processIdentifier, list: list)
+        snapshot.captured = captured ?? Self.sharingDetected(in: list)
+        if snapshot != lastSnapshot {
+            lastSnapshot = snapshot
+            lastFullResolve = CACurrentMediaTime()
+        } else if !force {
+            return
+        }
         onSnapshot?(snapshot)
     }
 
@@ -175,22 +191,15 @@ final class ActiveWindowTracker {
         return bid
     }
 
-    private func takeSnapshot(ownPID: pid_t) -> DesktopSnapshot {
+    private func takeSnapshot(ownPID: pid_t, list: [[String: Any]]) -> DesktopSnapshot {
         var snapshot = DesktopSnapshot()
-        var dockNames: [String] = []
         let frontmost = NSWorkspace.shared.frontmostApplication
         snapshot.activePID = frontmost?.processIdentifier
         snapshot.activeName = frontmost?.localizedName
         snapshot.activeBundleID = frontmost?.bundleIdentifier
 
-        guard let list = CGWindowListCopyWindowInfo(
-            [.optionOnScreenOnly, .excludeDesktopElements],
-            kCGNullWindowID
-        ) as? [[String: Any]] else { return snapshot }
-
         for info in list {
             let owner = info[kCGWindowOwnerName as String] as? String ?? ""
-            let name = info[kCGWindowName as String] as? String ?? ""
             let layer = Self.number(info[kCGWindowLayer as String])
             let pid = Self.number(info[kCGWindowOwnerPID as String])
             if layer == 0 {
@@ -202,56 +211,32 @@ final class ActiveWindowTracker {
                     snapshot.defocusOverlays += 1
                 }
             }
-            if owner == "Dock" {
-                dockNames.append(name)
-                if name.contains("Mission Control") || name.contains("Exposé") || name.contains("Expose") {
-                    snapshot.missionControl = true
-                } else if Self.isFullScreenDockWindow(info) {
-                    snapshot.missionControl = true
-                }
-            }
+            if Self.isMissionControlWindow(info) { snapshot.missionControl = true }
             guard Self.number(info[kCGWindowLayer as String]) == 0 else { continue }
             guard let alpha = Self.number(info[kCGWindowAlpha as String]), alpha > 0 else { continue }
             guard let pid = Self.number(info[kCGWindowOwnerPID as String]) else { continue }
             guard let windowNumber = Self.number(info[kCGWindowNumber as String]) else { continue }
-            guard let b = info[kCGWindowBounds as String] as? [String: Any],
-                  let x = Self.number(b["X"]),
-                  let y = Self.number(b["Y"]),
-                  let w = Self.number(b["Width"]),
-                  let h = Self.number(b["Height"]),
-                  w >= 120, h >= 80
-            else { continue }
+            guard let bounds = Self.windowBounds(info) else { continue }
             let pidValue = pid_t(pid)
             snapshot.windows.append(WindowInfo(
                 pid: pidValue,
                 number: Int(windowNumber),
                 owner: owner,
                 bundleID: bundleID(for: pidValue, frontmost: frontmost),
-                rect: Self.cocoaRect(fromCGBounds: CGRect(x: x, y: y, width: w, height: h))
+                rect: Self.cocoaRect(fromCGBounds: bounds)
             ))
         }
-        snapshot.captured = Self.anyDisplayCaptured() || Self.sharingUIDetected(in: list)
+        if let activeWindow = snapshot.activeWindow {
+            snapshot.activeWindowInFullScreenSpace = SkyLight.isInFullScreenSpace(windowNumber: activeWindow.number)
+        }
         return snapshot
     }
 
-    /// Lightweight Mission Control / Exposé / Launchpad probe for the fast
-    /// watcher: single window-list fetch, Dock windows only.
-    static func isMissionControlActive() -> Bool {
-        guard let list = CGWindowListCopyWindowInfo(
-            [.optionOnScreenOnly, .excludeDesktopElements],
-            kCGNullWindowID
-        ) as? [[String: Any]] else { return false }
-        for info in list {
-            guard info[kCGWindowOwnerName as String] as? String == "Dock" else { continue }
-            let name = info[kCGWindowName as String] as? String ?? ""
-            if name.contains("Mission Control") || name.contains("Exposé") || name.contains("Expose") {
-                return true
-            }
-            if isFullScreenDockWindow(info) {
-                return true
-            }
-        }
-        return false
+    private static func isMissionControlWindow(_ info: [String: Any]) -> Bool {
+        guard info[kCGWindowOwnerName as String] as? String == "Dock" else { return false }
+        let name = info[kCGWindowName as String] as? String ?? ""
+        return name.contains("Mission Control") || name.contains("Exposé") || name.contains("Expose")
+            || isFullScreenDockWindow(info)
     }
 
     /// A Dock-owned window covering (nearly) a whole screen.
@@ -264,73 +249,21 @@ final class ActiveWindowTracker {
         return screens.contains { w >= $0.frame.width * 0.8 && h >= $0.frame.height * 0.8 }
     }
 
-    /// Sharing/mirroring detection via the display mirror set plus
-    /// on-screen sharing affordances.
-    ///
-    /// Background: `disableWhileSharing` used to check only
-    /// `CGDisplayIsInMirrorSet` (AirPlay mirroring). Zoom / Meet / Teams
-    /// screen share never mirrors, so the toggle was dead for the main
-    /// case and dimmed windows leaked to the stream. This expands the same
-    /// `snapshot.captured` signal — no new permissions (same window-list
-    /// metadata already fetched), same pause path in `OverlayController`.
-    /// Fail-safe direction is pause: a false positive hides the effect,
-    /// a false negative embarrasses the user on stream.
-    private static func anyDisplayCaptured() -> Bool {
-        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
-        var count: UInt32 = 0
-        guard CGGetOnlineDisplayList(16, &ids, &count) == .success else { return false }
-        return ids.prefix(Int(count)).contains {
-            CGDisplayIsInMirrorSet($0) != 0
+    private static func sharingDetected(in list: [[String: Any]]) -> Bool {
+        displayMirroringEnabled() || list.contains { info in
+            guard let title = info[kCGWindowName as String] as? String,
+                  let owner = info[kCGWindowOwnerName as String] as? String,
+                  let alpha = number(info[kCGWindowAlpha as String]), alpha > 0 else { return false }
+            return SharingWindow.matches(owner: owner, title: title)
         }
     }
 
-    /// Heuristic scan of the already-fetched window list for active
-    /// screen-share UI: Zoom sharing toolbar, Teams sharing bar, Chrome
-    /// "is sharing your screen", macOS Screen Sharing, etc.
-    ///
-    /// Two tiers to limit false positives (e.g. a doc titled "how to
-    /// stop sharing"): strong phrases match any owner; weaker phrases
-    /// require a meeting/browser/screenshare owner.
-    private static func sharingUIDetected(in list: [[String: Any]]) -> Bool {
-        for info in list {
-            let owner = (info[kCGWindowOwnerName as String] as? String ?? "").lowercased()
-            let name = (info[kCGWindowName as String] as? String ?? "").lowercased()
-            guard !name.isEmpty else { continue }
-            if name.contains("sharing your screen")
-                || name.contains("sharing this screen")
-                || name.contains("sharing toolbar")
-                || name.contains("stop sharing")
-                || name.contains("stop share")
-                || name.contains("you're sharing")
-                || name.contains("you are sharing")
-                || name.contains("is presenting your screen") {
-                return true
-            }
-            let sharingOwner = owner.contains("zoom")
-                || owner.contains("teams")
-                || owner.contains("webex")
-                || owner.contains("slack")
-                || owner.contains("discord")
-                || owner.contains("skype")
-                || owner.contains("chrome")
-                || owner.contains("safari")
-                || owner.contains("firefox")
-                || owner.contains("edge")
-                || owner.contains("brave")
-                || owner.contains("arc")
-                || owner.contains("opera")
-                || owner.contains("facetime")
-                || owner.contains("screen sharing")
-                || owner.contains("quicktime")
-                || owner.contains("meet")
-            if sharingOwner
-                && (name.contains("is sharing")
-                    || name.contains("is presenting")
-                    || name.contains("screen sharing")) {
-                return true
-            }
-        }
-        return false
+    private static func displayMirroringEnabled() -> Bool {
+        // Online displays include mirrored outputs, which NSScreen may coalesce.
+        var displays = [CGDirectDisplayID](repeating: 0, count: 16)
+        var count: UInt32 = 0
+        guard CGGetOnlineDisplayList(UInt32(displays.count), &displays, &count) == .success else { return false }
+        return displays.prefix(Int(count)).contains { CGDisplayIsInMirrorSet($0) != 0 }
     }
 
     /// CG window bounds use a top-left origin measured from the top of the
@@ -343,6 +276,14 @@ final class ActiveWindowTracker {
             width: rect.width,
             height: rect.height
         )
+    }
+
+    private static func windowBounds(_ info: [String: Any]) -> CGRect? {
+        guard let bounds = info[kCGWindowBounds as String] as? [String: Any],
+              let x = number(bounds["X"]), let y = number(bounds["Y"]),
+              let width = number(bounds["Width"]), let height = number(bounds["Height"]),
+              width > 0, height > 0 else { return nil }
+        return CGRect(x: x, y: y, width: width, height: height)
     }
 
     private static func number(_ value: Any?) -> CGFloat? {

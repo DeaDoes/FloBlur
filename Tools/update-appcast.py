@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
-"""Insert (or refresh) one version item in appcast.xml. Idempotent by tag.
+"""Check a release build number or insert one version item in appcast.xml.
 
 Usage:
   update-appcast.py --feed appcast.xml --tag v1.1 --short-version 1.1 \
       --build 2 --asset-url https://.../FloBlur-1.1.zip \
       --length 1234567 --edsig BASE64SIG [--min-os 14.0] [--notes-html notes.html]
 
-Behavior:
-  - Parses the existing feed (creates a skeleton if missing).
-  - Removes any item whose enclosure tag/shortVersion equals the new tag
-    (re-runs are clean, never duplicates).
-  - Prepends the new item (newest first), preserves everything else byte-
-    byte: old items, order, and URLs are never rewritten, so per-tag
-    download URLs stay valid forever.
-  - Writes the file back with an XML declaration.
+Use --check-build with --feed, --tag, --short-version, and --build to
+validate against the published feed without changing it.
+
+A retry may refresh the same release with the same build number. A
+different release must use a different build number.
 
 Why not generate_appcast: it rewrites every enclosure URL from a single
 --download-url-prefix, but GitHub release assets live under per-tag paths
@@ -24,6 +21,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 NS = {"sparkle": "http://www.andymatuschak.org/xml-namespaces/sparkle"}
+SPARKLE = f"{{{NS['sparkle']}}}"
 ET.register_namespace("sparkle", NS["sparkle"])
 ET.register_namespace("dc", "http://purl.org/dc/elements/1.1/")
 
@@ -34,13 +32,19 @@ def parse(args):
     p.add_argument("--tag", required=True)
     p.add_argument("--short-version", required=True)
     p.add_argument("--build", required=True)
-    p.add_argument("--asset-url", required=True)
-    p.add_argument("--length", required=True)
-    p.add_argument("--edsig", required=True)
+    p.add_argument("--check-build", action="store_true")
+    p.add_argument("--asset-url")
+    p.add_argument("--length")
+    p.add_argument("--edsig")
     p.add_argument("--min-os", default="14.0")
     p.add_argument("--notes-html", default=None)
     p.add_argument("--repo", default="DeaDoes/FloBlur")
-    return p.parse_args(args)
+    parsed = p.parse_args(args)
+    if not parsed.check_build and not all(
+        value and value.strip() for value in (parsed.asset_url, parsed.length, parsed.edsig)
+    ):
+        p.error("--asset-url, --length, and --edsig are required when writing the feed")
+    return parsed
 
 
 def load_or_skeleton(path, repo):
@@ -59,35 +63,55 @@ def load_or_skeleton(path, repo):
         return ET.ElementTree(rss)
 
 
-def item_tag(item):
-    for child in item:
-        if child.tag.endswith("}enclosure") or child.tag == "enclosure":
-            return child.get("sparkle:shortVersionString") or child.get("sparkle:version")
-    return None
+def normalize_build(value):
+    value = value.strip()
+    if value.isascii() and value.isdecimal():
+        return value.lstrip("0") or "0"
+    return value
+
+
+def matching_release_items(channel, version, build):
+    """Find retry entries after confirming the build is unique to this release."""
+    matches = []
+    for item in channel.findall("item"):
+        version_tags = {item.findtext(f"{SPARKLE}shortVersionString")}
+        builds = {item.findtext(f"{SPARKLE}version")}
+        for enclosure in item.findall("enclosure"):
+            version_tags.add(enclosure.get(f"{SPARKLE}shortVersionString"))
+            builds.add(enclosure.get(f"{SPARKLE}version"))
+        versions = {value.strip() for value in version_tags if value and value.strip()}
+        builds = {normalize_build(value) for value in builds if value and value.strip()}
+        if versions == {version}:
+            if builds and builds != {build}:
+                raise ValueError(f"release {version} already has build {', '.join(sorted(builds))}")
+            matches.append(item)
+        elif build in builds:
+            owner = ", ".join(sorted(versions)) or item.findtext("title") or "another release"
+            raise ValueError(f"build {build} is already assigned to {owner}; increase CURRENT_PROJECT_VERSION")
+    return matches
 
 
 def main(argv):
     a = parse(argv)
-    # An unsigned enclosure is worse than no entry: Sparkle rejects the
-    # whole item and the failure is silent on the client. Fail loudly.
-    if not a.edsig.strip() or not a.length.strip():
-        print("ERROR: refusing to write unsigned enclosure (empty edsig/length)", file=sys.stderr)
-        return 1
-    tree = load_or_skeleton(a.feed, a.repo)
-    channel = tree.getroot().find("channel")
-    if channel is None:
-        print("ERROR: feed has no channel", file=sys.stderr)
+    try:
+        tree = ET.parse(a.feed) if a.check_build else load_or_skeleton(a.feed, a.repo)
+        channel = tree.getroot().find("channel")
+        if channel is None:
+            raise ValueError("feed has no channel")
+        build = normalize_build(a.build)
+        if not build.isascii() or not build.isdecimal() or build == "0":
+            raise ValueError("expected a positive integer build number")
+        matches = matching_release_items(channel, a.short_version, build)
+    except (OSError, ET.ParseError, ValueError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
         return 1
 
-    # Drop any existing entry for this version (idempotent re-runs).
-    for item in list(channel.findall("item")):
-        enc = item.find("enclosure")
-        if enc is None:
-            continue
-        ver = enc.get("{http://www.andymatuschak.org/xml-namespaces/sparkle}shortVersionString")
-        tag = enc.get("{http://www.andymatuschak.org/xml-namespaces/sparkle}version")
-        if ver == a.short_version or tag == a.build:
-            channel.remove(item)
+    if a.check_build:
+        print(f"appcast: build {build} is valid for {a.tag}")
+        return 0
+
+    for item in matches:
+        channel.remove(item)
 
     notes = ""
     if a.notes_html:
@@ -97,15 +121,15 @@ def main(argv):
     item = ET.Element("item")
     ET.SubElement(item, "title").text = f"FloBlur {a.short_version}"
     ET.SubElement(item, "link").text = f"https://github.com/{a.repo}/releases/tag/{a.tag}"
-    ET.SubElement(item, "{http://www.andymatuschak.org/xml-namespaces/sparkle}version").text = a.build
-    ET.SubElement(item, "{http://www.andymatuschak.org/xml-namespaces/sparkle}shortVersionString").text = a.short_version
-    ET.SubElement(item, "{http://www.andymatuschak.org/xml-namespaces/sparkle}minimumSystemVersion").text = a.min_os
+    ET.SubElement(item, f"{SPARKLE}version").text = build
+    ET.SubElement(item, f"{SPARKLE}shortVersionString").text = a.short_version
+    ET.SubElement(item, f"{SPARKLE}minimumSystemVersion").text = a.min_os
     if notes:
         desc = ET.SubElement(item, "description")
         desc.text = notes
     ET.SubElement(item, "enclosure", {
         "url": a.asset_url,
-        f"{{{NS['sparkle']}}}version": a.build,
+        f"{SPARKLE}version": build,
         f"{{{NS['sparkle']}}}shortVersionString": a.short_version,
         "length": a.length,
         "type": "application/octet-stream",

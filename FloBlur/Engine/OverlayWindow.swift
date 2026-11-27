@@ -26,7 +26,7 @@ final class ClickThroughContentView: NSView {}
 /// - transparent, non-opaque, no shadow, ignores mouse, never key/main
 /// - `collectionBehavior` 0x251: all Spaces, stationary, no cycle, aux-fullscreen
 /// - black dim layer (opacity animated) + `NSVisualEffectView` blur fallback
-/// - sharp regions cut as plain rects into an even-odd mask (flipped coords)
+/// - disjoint sharp regions in window-local Cocoa coordinates
 /// - SkyLight blur radius eased out-cubic over 0.28s via `CADisplayLink`
 /// - show/hide fade the window alpha; hide parks an `orderOut` on delay
 final class OverlayWindow: NSWindow {
@@ -34,7 +34,9 @@ final class OverlayWindow: NSWindow {
     private var fallbackBlurView: NSVisualEffectView!
 
     private var appliedHoles: [CGRect] = []
-    private var appliedBlurRadius: Int?
+    private var maskSize = CGSize.zero
+    private var maskScale: CGFloat = 0
+    private var materialAlpha: CGFloat = 0
     private var appliedDimOpacity: Float?
     private var appliedDimColor: CGColor?
 
@@ -101,49 +103,76 @@ final class OverlayWindow: NSWindow {
         super.close()
     }
 
-    // MARK: - Holes (snap; already in flipped window-local coords)
+    // MARK: - Sharp regions
 
-    func setHoles(_ holes: [CGRect]) {
-        guard holes != appliedHoles else { return }
+    func setHoles(_ globalRects: [CGRect], in frame: CGRect) {
+        guard let layer = dimView.layer else { return }
+        let holes = globalRects.compactMap { rect -> CGRect? in
+            let clipped = rect.intersection(frame)
+            guard !clipped.isEmpty else { return nil }
+            return clipped.offsetBy(dx: -frame.minX, dy: -frame.minY)
+        }
+        let size = frame.size
+        let scale = backingScaleFactor
+        guard holes != appliedHoles || size != maskSize || scale != maskScale else { return }
         appliedHoles = holes
-        applyMask(holes, to: contentView?.layer)
-    }
+        maskSize = size
+        maskScale = scale
 
-    private func applyMask(_ holes: [CGRect], to layer: CALayer?) {
-        guard let layer else { return }
+        guard !holes.isEmpty else {
+            layer.mask = nil
+            fallbackBlurView.maskImage = nil
+            return
+        }
         let path = CGMutablePath()
-        path.addRect(CGRect(origin: .zero, size: layer.bounds.size))
-        for hole in holes where !hole.isEmpty {
-            path.addRect(hole)
-        }
+        path.addRect(CGRect(origin: .zero, size: size))
+        path.addRects(holes)
         let mask = CAShapeLayer()
-        // Pin the mask geometry to the masked layer: with an explicit frame
-        // the path coordinates map 1:1 under every mask-mapping rule, so
-        // holes can never drift onto a neighboring window.
-        mask.frame = layer.bounds
-        mask.bounds = layer.bounds
-        // This overlay's own screen scale — never main's. Mixed
-        // Retina/non-Retina setups would otherwise get soft holes
-        // drifting a pixel off on the secondary display.
-        if let screenScale = screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor {
-            mask.contentsScale = screenScale
-        }
+        mask.frame = CGRect(origin: .zero, size: size)
+        mask.contentsScale = scale
         mask.path = path
         mask.fillRule = .evenOdd
         layer.mask = mask
+
+        // Behind-window materials are composited separately from the dim layer.
+        fallbackBlurView.maskImage = NSImage(size: size, flipped: false) { _ in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            context.setFillColor(NSColor.black.cgColor)
+            context.addPath(path)
+            context.fillPath(using: .evenOdd)
+            return true
+        }
     }
 
     // MARK: - Blur (ease-out-cubic ramp over 0.28s)
 
     func setBlur(radius: Int, animated: Bool) {
-        if animated {
-            NSAnimationContext.runAnimationGroup { _ in
-                fallbackBlurView.animator().alphaValue = radius > 0 ? 1 : 0
+        // A WindowServer blur affects the whole window. With holes, use the
+        // explicitly masked material so no native blur remains inside a hole.
+        let masked = !appliedHoles.isEmpty
+        let alpha = masked ? CGFloat(radius) / 80 : (radius > 0 ? 1 : 0)
+        if materialAlpha != alpha {
+            materialAlpha = alpha
+            if animated {
+                NSAnimationContext.runAnimationGroup { _ in
+                    fallbackBlurView.animator().alphaValue = alpha
+                }
+            } else {
+                fallbackBlurView.alphaValue = alpha
             }
-        } else {
-            fallbackBlurView.alphaValue = radius > 0 ? 1 : 0
         }
-        startBlurRamp(to: radius)
+        if masked || !animated {
+            let immediateRadius = masked ? 0 : radius
+            blurRamp?.invalidate()
+            blurRamp = nil
+            blurRampTo = immediateRadius
+            if presentedBlurRadius != immediateRadius {
+                SkyLight.setBackgroundBlurRadius(windowNumber: windowNumber, radius: immediateRadius)
+                presentedBlurRadius = immediateRadius
+            }
+        } else if blurRampTo != radius {
+            startBlurRamp(to: radius)
+        }
     }
 
     private func startBlurRamp(to radius: Int) {
@@ -155,10 +184,13 @@ final class OverlayWindow: NSWindow {
         if blurRampFrom == blurRampTo {
             SkyLight.setBackgroundBlurRadius(windowNumber: windowNumber, radius: radius)
             presentedBlurRadius = radius
-            appliedBlurRadius = radius
             return
         }
-        guard let link = CADisplayLink.make(target: self, selector: #selector(stepBlurRamp)) else { return }
+        guard let link = CADisplayLink.make(target: self, selector: #selector(stepBlurRamp)) else {
+            SkyLight.setBackgroundBlurRadius(windowNumber: windowNumber, radius: radius)
+            presentedBlurRadius = radius
+            return
+        }
         link.add(to: .main, forMode: .common)
         blurRamp = link
     }
@@ -170,7 +202,6 @@ final class OverlayWindow: NSWindow {
         let radius = Int((Double(blurRampFrom) + eased * Double(blurRampTo - blurRampFrom)).rounded())
         if radius != presentedBlurRadius {
             presentedBlurRadius = radius
-            appliedBlurRadius = radius
             if windowNumber > 0 {
                 SkyLight.setBackgroundBlurRadius(windowNumber: windowNumber, radius: radius)
             }

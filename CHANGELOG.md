@@ -13,6 +13,17 @@ never ship.
 
 Nothing yet. Contributions land here — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [1.2] — 2026-11-27
+
+### Fixed
+
+- Keep sharp regions aligned as windows move and overlap, and clear Peek when the pointer leaves.
+- Recover the overlay when macOS hides or restacks it. Keep maximized windows sharp while fading the visible background, and distinguish them from native fullscreen.
+- Apply shortcut, cursor shake, and Night Shift setting changes promptly. Report shortcut conflicts while preserving a working shortcut.
+- Keep overnight schedules active through midnight on the day after the selected start day.
+- Clear app rules, hotkeys, and schedule assignments when a custom preset is deleted.
+- Preserve published update archives on release retries and reject reused build numbers before publishing.
+
 ## [1.1] — 2026-10-09
 
 ### Fixed
@@ -101,6 +112,7 @@ First public release.
   identity, library validation would otherwise reject the re-signed
   `Sparkle.framework` and the app would crash-loop at launch on other Macs.
 
-[Unreleased]: https://github.com/DeaDoes/FloBlur/compare/v1.1...HEAD
+[Unreleased]: https://github.com/DeaDoes/FloBlur/compare/v1.2...HEAD
+[1.2]: https://github.com/DeaDoes/FloBlur/compare/v1.1...v1.2
 [1.1]: https://github.com/DeaDoes/FloBlur/compare/v1.0...v1.1
 [1.0]: https://github.com/DeaDoes/FloBlur/releases/tag/v1.0
